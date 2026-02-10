@@ -1,0 +1,1 @@
+# CaseLawDoc, WebCaseDoc 등 자료 타입

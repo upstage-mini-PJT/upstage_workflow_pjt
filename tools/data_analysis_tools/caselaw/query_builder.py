@@ -1,0 +1,1 @@
+# StructuredCase → 검색쿼리 생성

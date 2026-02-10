@@ -1,0 +1,1 @@
+# StructuredCase(입력 계약) 최소 subset

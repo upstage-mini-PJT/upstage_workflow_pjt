@@ -6,6 +6,7 @@ onboarding_agent용 그래프 노드 정의.
 """
 
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 
 from tools.document_parser import parse_document
 from tools.rag_terms import fetch_relevant_insurance_terms
@@ -13,42 +14,38 @@ from tools.rag_terms import fetch_relevant_insurance_terms
 from agents.onboarding_agent.schemas import PlanningResponse
 
 
-import os
-from langgraph.types import interrupt
 
-import os
-from langgraph.types import interrupt
 
-def request_denial_file_node(state: dict) -> dict:
-    """
-    Do-While 패턴: 일단 파일을 요청하고, 유효하지 않으면 계속 반복합니다.
-    """
-    # 1. 루프 시작 (Do)
-    while True:
-        # [Step 1: 요청] 노드 진입 즉시 중단하고 사용자 입력을 기다림
-        user_input = interrupt({
-            "action": "require_file",
-            "message": "분석을 시작합니다. '보험금 지급 거부 명세서' 파일 경로를 입력해주세요."
-        })
+# def request_denial_file_node(OnboardingState: dict) -> dict:
+#     """
+#     Do-While 패턴: 일단 파일을 요청하고, 유효하지 않으면 계속 반복합니다.
+#     """
+#     # 1. 루프 시작 (Do)
+#     while True:
+#         # [Step 1: 요청] 노드 진입 즉시 중단하고 사용자 입력을 기다림
+#         user_input = interrupt({
+#             "action": "require_file",
+#             "message": "분석을 시작합니다. '보험금 지급 거부 명세서' 파일 경로를 입력해주세요."
+#         })
 
-        # [Step 2: 입력값 추출]
-        if isinstance(user_input, str):
-            file_path = user_input.strip()
-        else:
-            file_path = user_input.get("denial_file_path", "").strip()
+#         # [Step 2: 입력값 추출]
+#         if isinstance(user_input, str):
+#             file_path = user_input.strip()
+#         else:
+#             file_path = user_input.get("denial_file_path", "").strip()
 
-        # [Step 3: 검증] 파일이 존재하고 유효한지 확인 (While 조건)
-        if file_path and os.path.exists(file_path):
-            # 성공하면 루프 탈출
-            break
+#         # [Step 3: 검증] 파일이 존재하고 유효한지 확인 (While 조건)
+#         if file_path and os.path.exists(file_path):
+#             # 성공하면 루프 탈출
+#             break
         
-        # 유효하지 않으면 루프를 돌며 다시 interrupt를 만남 (에러 메시지 추가 가능)
-        print(f"잘못된 경로 입력됨: {file_path}. 다시 시도합니다.")
+#         # 유효하지 않으면 루프를 돌며 다시 interrupt를 만남 (에러 메시지 추가 가능)
+#         print(f"잘못된 경로 입력됨: {file_path}. 다시 시도합니다.")
 
-    # 2. 유효한 경로를 찾았으므로 상태 업데이트
-    return {"denial_file_path": file_path}
+#     # 2. 유효한 경로를 찾았으므로 상태 업데이트
+#     return {"denial_file_path": file_path}
 
-def planning_node(state: dict, config: dict) -> dict:
+def planning_node(state: dict, config: RunnableConfig) -> dict:
     """
     사용자 입력 파일(거부 명세서)을 DP로 파싱하고, RAG로 관련 약관을 가져온 뒤
     분쟁신청 전략을 세우고, 추가 필요 서류 목록을 Pydantic 스키마로 받아 state에 넣는다.
@@ -65,7 +62,7 @@ def planning_node(state: dict, config: dict) -> dict:
             "required_documents": [],
         }
 
-    configurable = config.get("configurable", {})
+    configurable = (config or {}).get("configurable", {})
     dp_client = configurable.get("dp_client")
     chat_client = configurable.get("chat_client")
 
@@ -118,6 +115,6 @@ def _build_planning_prompt(denial_text: str, relevant_terms: str) -> str:
 
 다음 두 가지를 작성해 주세요.
 
-1) 피보험자의 현재 상황을 요약하고, 분쟁신청을 위한 전략/계획을 구체적으로 서술하세요.
-2) 분쟁 신청을 위해 추가로 제출이 필요한 서류 목록을 나열하세요.
+1) 피보험자의 현재 상황을 요약하세요, 분쟁신청을 위한 전략/계획을 구체적으로 서술하세요.
+2) 전략적인 분쟁 신청을 위해 추가로 제출이 필요한 서류 목록을 최대 3개와 관련 키워드를 나열하세요.
 """

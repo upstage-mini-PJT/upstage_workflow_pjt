@@ -2,44 +2,69 @@
 onboarding_agent 전용 테스트 그래프.
 노드는 agents/onboarding_agent/nodes.py 에서 import.
 """
-import os
+
+from agents.onboarding_agent.state import OnboardingState
+
+
 from pathlib import Path
 from dotenv import load_dotenv
-from langgraph.graph import END, StateGraph
+from langgraph.graph import START, END, StateGraph
+from langchain_core.runnables import RunnableConfig
 from langchain_upstage import (
     ChatUpstage,
-    UpstageDocumentParseLoader,
     UpstageUniversalInformationExtraction,
 )
-
-from .nodes import dummy_node
-
+from langgraph.checkpoint.memory import MemorySaver
+from .nodes import  planning_node
+from .state import OnboardingState
+import uuid
 # 상위 위치에 있는 env파일을 참조하기 위해 루트 조정(추후에 외부 그래프에서 실행시에는 필요없는 로직)
 current_dir = Path(__file__).resolve().parent
 root_dir = current_dir.parent.parent  # project root
 dotenv_path = root_dir / ".env"
 load_dotenv(dotenv_path=dotenv_path)
 
-# api 클라이언트 관리 (그래프 전에 미리 인스턴스 생성해서 그래프 내에서 싱글톤으로 관리)
-config = {
-    "configurable": {
-        "ie_client": UpstageUniversalInformationExtraction(api_key=os.getenv("UPSTAGE_API_KEY")),
-        "chat_client": ChatUpstage(api_key=os.getenv("UPSTAGE_API_KEY")),
-    }
-}
 
 # 1. 그래프 빌드
-builder = StateGraph( )
-builder.add_node("analyze", dummy_node)
-builder.set_entry_point("analyze")
-builder.add_edge("analyze", END)
-graph = builder.compile()
+builder = StateGraph(OnboardingState)
+# builder.add_node("request_denial_file", request_denial_file_node)
+builder.add_node("planning", planning_node)
+builder.add_edge(START, "planning")
+builder.add_edge("planning", END)
+
+memory = MemorySaver()
+onboarding_graph = builder.compile(checkpointer=memory)
 
 
 
 
-# 테스트 시:
-# graph.invoke(inputs={"pdf_text": "PDF에서 추출된 아주 긴 텍스트..."}, config=config)
+# 2. 실행 로직 (전처리 + 실행)
+if __name__ == "__main__":
+    thread_id = str(uuid.uuid4())
+    print(f"--- 🚀 테스트 시작 (Thread ID: {thread_id}) ---")
 
+    # [Step 1: 외부 전처리] 그래프 실행 전, 유효한 파일 경로 받기
+    valid_file_path = "/Users/chanwooyang/workspace/upstage_workflow_pjt/agents/onboarding_agent/korean_denial_mock.pdf"
+    
+    # [Step 2: 설정 준비]
+    runnable_config: RunnableConfig = {
+        "configurable": {
+            "dp_client": UpstageUniversalInformationExtraction(),
+            "chat_client": ChatUpstage(model="solar-pro"),
+            "thread_id": thread_id
+        }
+    }
 
+    # [Step 3: 그래프 실행] 준비된 파일을 가지고 단 한 번 실행!
+    print(f"\n--- 🤖 그래프 분석 시작 (파일: {valid_file_path}) ---")
+    
+    # interrupt 루프 없이 깔끔하게 한 번만 호출하면 됩니다.
+    # 초기 상태(state)에 검증된 파일 경로를 넣어줍니다.
+    final_state = onboarding_graph.invoke(
+        {"denial_file_path": valid_file_path}, 
+        config=runnable_config
+    )
 
+    print("\n--- ✅ 분석 완료 ---")
+    print(f"결과 Plan: {final_state.get('plan')[:100]}...") # 결과 일부 출력
+    print(f"필요 서류: {final_state.get('required_documents')}")

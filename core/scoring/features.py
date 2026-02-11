@@ -13,7 +13,7 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from core.schemas.case_context import StructuredCase
-from tools.data_analysis_tools.caselaw.types import CaseLawDoc
+from tools.data_analysis_tools.caselaw.caselaw_types import CaseLawDoc
 
 
 # ============================================================================

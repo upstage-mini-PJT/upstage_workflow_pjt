@@ -1,0 +1,212 @@
+# 보험금 부지급 대응 에이전틱 워크플로우 - Step3 Data Analysis
+
+보험금 부지급 통지를 받은 사용자를 위한 AI 기반 분석 및 재심의 전략 수립 시스템의 **Step3 (Data Analysis)** 구현 프로젝트입니다.
+
+## 📋 프로젝트 개요
+
+### 전체 워크플로우
+
+1. **Step1 - Onboarding**: 사용자 정보, 보험 정보, 약관 PDF, 부지급 통지서 수집
+2. **Step2 - Situation Explanation & Structuring**: 상황 설명 및 사실/쟁점/약관 구조화
+3. **Step3 - Data Analysis** ⭐ **(이 프로젝트)**: 판례/사례 기반 분석 및 재심의 전략 수립
+4. **Step4 - Re-review Document Drafting**: 재심의 요청 문서 생성
+
+### Step3의 역할
+
+- 보험사 부지급 사유를 **법적/실무적으로 분석**
+- 유사 판례 및 분쟁 사례를 근거로 **재심의 가능성 판단**
+- 사용자가 다음 액션을 결정할 수 있도록 **정량 + 정성 정보 제공**
+
+## 🎯 출력 구조
+
+Step3는 3개의 JSON 출력을 생성합니다:
+
+### 1. 분석 리포트 (`analysis_report`)
+
+```json
+{
+  "issue_tree": [...],           // 쟁점 트리 분석
+  "gap_analysis": {...},         // 부족한 증빙 식별
+  "recommended_actions": [...],  // 권장 액션
+  "success_probability": {       // 재심의 성공 확률
+    "score_0_to_100": 62,
+    "band": "MEDIUM",
+    "drivers_positive": [...],
+    "drivers_negative": [...],
+    "assumptions": [...]
+  }
+}
+```
+
+### 2. 재심의 전략 계획 (`strategy_plan`)
+
+```json
+{
+  "strategy_overview": "...",    // 전략 개요
+  "primary_claims": [...],       // 핵심 주장
+  "step_by_step_plan": [...],    // 단계별 실행 계획
+  "recommended_channel": "..."   // 제출 채널
+}
+```
+
+### 3. 리서치 결과 (`research_pack`)
+
+```json
+{
+  "caselaw_results": [...],      // 판례 검색 결과
+  "web_sources": [...]           // 웹 소스 (사례/기사)
+}
+```
+
+## 🗂️ 프로젝트 구조
+
+```
+.
+├── README.md                    # 이 파일
+├── IMPLEMENTATION_PLAN.md       # 상세 구현 계획
+├── PLAN_SUMMARY.md              # 구현 플랜 요약
+├── data_analysis.md             # Step3 구현 가이드
+│
+├── core/                        # 핵심 로직
+│   ├── schemas/                 # 데이터 스키마
+│   │   ├── analysis.py          # ✅ Step3 출력 스키마
+│   │   ├── case_context.py      # ✅ Step2 입력 스키마
+│   │   └── provenance.py        # ✅ 근거 추적
+│   └── scoring/                 # 점수 산정 엔진
+│       ├── features.py          # 🔨 Feature 추출
+│       └── rubric.py            # 🔨 YAML 기반 점수 산정
+│
+├── agents/                      # 에이전트 로직
+│   └── data_analysis_agent/
+│       ├── pipeline.py          # 🔨 5단계 파이프라인
+│       ├── agent.py             # 🔨 메인 실행 로직
+│       ├── adapters.py          # 🔨 입출력 변환
+│       └── prompts/             # 🔨 LLM 프롬프트
+│
+├── tools/                       # 도구
+│   └── data_analysis_tools/
+│       └── caselaw/             # 판례 검색 (팀원 담당)
+│           ├── types.py         # ✅ 데이터 타입 정의
+│           ├── client.py        # 👥 판례 API 호출
+│           ├── query_builder.py # 👥 검색 쿼리 생성
+│           ├── normalizer.py    # 👥 결과 정규화
+│           └── ranker.py        # 👥 Relevance scoring
+│
+├── data/                        # 데이터 & 룰셋
+│   └── data_analysis_data/
+│       └── rubrics/             # 🔨 점수 산정 규칙
+│           ├── issue_mapping.yml
+│           └── success_probability_v1.yml
+│
+├── evaluations/                 # 평가 시스템
+│   └── data_analysis/
+│       ├── eval.py              # 🔨 평가 스크립트
+│       ├── metrics.py           # 🔨 평가 메트릭
+│       └── dataset.jsonl        # 🔨 테스트 데이터셋
+│
+└── main.py                      # 메인 실행 파일
+
+범례:
+✅ 완료
+🔨 구현 필요
+👥 팀원 담당
+```
+
+## 🚀 시작하기
+
+### 환경 설정
+
+```bash
+# Python 3.9+ 필요
+python -m venv .venv
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# 의존성 설치
+pip install -r requirements.txt
+```
+
+### 실행
+
+```bash
+# Step3 에이전트 실행
+python main.py --input structured_case.json --output analysis_result.json
+```
+
+## 📐 구현 단계
+
+### ✅ Phase 1: 스키마 정의 (완료)
+
+- [x] 출력 스키마 (`core/schemas/analysis.py`)
+- [x] 입력 스키마 (`core/schemas/case_context.py`)
+- [x] 근거 추적 (`core/schemas/provenance.py`)
+- [x] 팀원 계약 (`tools/data_analysis_tools/caselaw/types.py`)
+
+### 🔨 Phase 2: Scoring 엔진 (진행중)
+
+- [ ] Feature 추출 로직
+- [ ] YAML 룰셋 작성
+- [ ] 점수 산정 엔진
+
+### 🔨 Phase 3: 파이프라인
+
+- [ ] Mock Retrieval 구현
+- [ ] 7단계 파이프라인 구현
+- [ ] 단위 테스트
+
+### 🔨 Phase 4: LLM 통합
+
+- [ ] 프롬프트 작성
+- [ ] LLM 호출 로직
+- [ ] 출력 검증
+
+### 🔨 Phase 5: 평가 시스템
+
+- [ ] 테스트 데이터셋
+- [ ] 평가 메트릭
+- [ ] 평가 스크립트
+
+### 🔨 Phase 6: 통합
+
+- [ ] 팀원 작업 통합
+- [ ] End-to-End 테스트
+- [ ] 최적화
+
+## 🤝 팀 역할 분담
+
+### 우리 팀
+
+- 핵심 분석 로직 (`core/`, `agents/`)
+- Scoring 엔진 (`core/scoring/`)
+- 평가 시스템 (`evaluations/`)
+- LLM 통합 (`agents/data_analysis_agent/prompts/`)
+
+### 팀원
+
+- 판례/사례 검색 (`tools/data_analysis_tools/caselaw/`)
+- API 연동
+- 데이터 정규화 및 랭킹
+
+## 📖 문서
+
+- **`data_analysis.md`**: Step3 구현 가이드 (원본 요구사항)
+- **`IMPLEMENTATION_PLAN.md`**: 상세 구현 계획
+- **`PLAN_SUMMARY.md`**: 구현 플랜 요약 (빠른 참조용)
+
+## ✅ Definition of Done
+
+Step3 구현 완료 기준:
+
+1. ✅ `agent.py.run(structured_case)` 호출 가능
+2. ✅ 결과가 `Step3Output` 스키마 완전 충족
+3. ✅ 모든 주장에 provenance 존재
+4. ✅ `evaluations/data_analysis/eval.py` 통과
+5. ✅ Step4에서 추가 가공 없이 사용 가능
+
+## 📞 문의
+
+프로젝트 관련 문의사항은 이슈를 등록해주세요.
+
+---
+
+**Last Updated**: 2026-02-11  
+**Status**: Phase 1 완료, Phase 2 진행중

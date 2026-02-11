@@ -13,7 +13,42 @@ from tools.rag_terms import fetch_relevant_insurance_terms
 from agents.onboarding_agent.schemas import PlanningResponse
 
 
-def planning(state: dict, config: dict) -> dict:
+import os
+from langgraph.types import interrupt
+
+import os
+from langgraph.types import interrupt
+
+def request_denial_file_node(state: dict) -> dict:
+    """
+    Do-While 패턴: 일단 파일을 요청하고, 유효하지 않으면 계속 반복합니다.
+    """
+    # 1. 루프 시작 (Do)
+    while True:
+        # [Step 1: 요청] 노드 진입 즉시 중단하고 사용자 입력을 기다림
+        user_input = interrupt({
+            "action": "require_file",
+            "message": "분석을 시작합니다. '보험금 지급 거부 명세서' 파일 경로를 입력해주세요."
+        })
+
+        # [Step 2: 입력값 추출]
+        if isinstance(user_input, str):
+            file_path = user_input.strip()
+        else:
+            file_path = user_input.get("denial_file_path", "").strip()
+
+        # [Step 3: 검증] 파일이 존재하고 유효한지 확인 (While 조건)
+        if file_path and os.path.exists(file_path):
+            # 성공하면 루프 탈출
+            break
+        
+        # 유효하지 않으면 루프를 돌며 다시 interrupt를 만남 (에러 메시지 추가 가능)
+        print(f"잘못된 경로 입력됨: {file_path}. 다시 시도합니다.")
+
+    # 2. 유효한 경로를 찾았으므로 상태 업데이트
+    return {"denial_file_path": file_path}
+
+def planning_node(state: dict, config: dict) -> dict:
     """
     사용자 입력 파일(거부 명세서)을 DP로 파싱하고, RAG로 관련 약관을 가져온 뒤
     분쟁신청 전략을 세우고, 추가 필요 서류 목록을 Pydantic 스키마로 받아 state에 넣는다.
@@ -21,7 +56,7 @@ def planning(state: dict, config: dict) -> dict:
     기대 state 입력: input_file_path (사용자에게 받은 파일 경로)
     출력 state: denial_statement_text, relevant_terms, plan, required_documents
     """
-    file_path = (state.get("input_file_path") or "").strip()
+    file_path = (state.get("denial_file_path")).strip()
     if not file_path:
         return {
             "denial_statement_text": "",
@@ -46,12 +81,12 @@ def planning(state: dict, config: dict) -> dict:
     denial_text = parse_document(file_path, dp_client)
 
     # RAG: 관련 보험 약관 조회
-    relevant_terms = fetch_relevant_insurance_terms(denial_text, top_k=5)
-
+    relevant_terms = fetch_relevant_insurance_terms(denial_text, top_k=5) # 현재는 None으로 리턴 추후에 디비 구축시 연결
+  
     if not chat_client:
         return {
             "denial_statement_text": denial_text,
-            "relevant_terms": relevant_terms,
+            # "relevant_terms": relevant_terms,
             "plan": "",
             "required_documents": [],
         }

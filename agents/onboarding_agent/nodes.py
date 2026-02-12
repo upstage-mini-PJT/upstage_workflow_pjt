@@ -7,11 +7,16 @@ onboarding_agent용 그래프 노드 정의.
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
+from langgraph.types import interrupt
 
 from tools.document_parser import parse_document
 from tools.rag_terms import fetch_relevant_insurance_terms
 
-from agents.onboarding_agent.schemas import PlanningResponse
+from agents.onboarding_agent.schemas import (
+    
+    PlanningResponse
+    
+)
 
 
 
@@ -92,6 +97,34 @@ def planning_node(state: dict, config: RunnableConfig) -> dict:
         "plan": response.plan,
         "required_documents": response.required_documents,
     }
+
+
+def request_additional_documents_node(state: dict, config: RunnableConfig) -> dict:
+    """
+    required_documents로 interrupt 후, Command(resume)로 받은 경로를 additional_document_paths에 저장.
+    읽기: required_documents / 쓰기: additional_document_paths
+    """
+    required = state.get("required_documents") or []
+    if not required:
+        return {"additional_document_paths": []}
+
+    payload = interrupt({
+        "action": "request_additional_documents",
+        "required_documents": required,
+        "message": "다음 서류를 제출해 주세요: " + ", ".join(required),
+    })
+    # resume 시 payload가 경로 리스트 또는 dict 등으로 올 수 있음
+    if isinstance(payload, list):
+        paths = [str(p).strip() for p in payload if p]
+    elif isinstance(payload, dict) and "paths" in payload:
+        paths = [str(p).strip() for p in payload["paths"] if p]
+    elif isinstance(payload, dict) and "additional_document_paths" in payload:
+        paths = [str(p).strip() for p in payload["additional_document_paths"] if p]
+    else:
+        paths = [str(payload).strip()] if payload else []
+    return {"additional_document_paths": paths}
+
+
 
 
 def _build_planning_prompt(denial_text: str, relevant_terms: str) -> str:

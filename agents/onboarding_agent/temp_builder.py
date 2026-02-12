@@ -15,7 +15,12 @@ from langchain_upstage import (
     UpstageUniversalInformationExtraction,
 )
 from langgraph.checkpoint.memory import MemorySaver
-from .nodes import parse_denial_node, retrieve_terms_node, planning_node
+from .nodes import (
+    parse_denial_node,
+    retrieve_terms_node,
+    planning_node,
+    request_additional_documents_node
+)
 from .state import OnboardingState
 import uuid
 # 상위 위치에 있는 env파일을 참조하기 위해 루트 조정(추후에 외부 그래프에서 실행시에는 필요없는 로직)
@@ -30,6 +35,9 @@ builder = StateGraph(OnboardingState)
 builder.add_node("parse_denial", parse_denial_node)
 builder.add_node("retrieve_terms", retrieve_terms_node)
 builder.add_node("planning", planning_node)
+builder.add_node("request_additional_documents", request_additional_documents_node)
+builder.add_node("request_additional_documents", END)
+
 builder.add_edge(START, "parse_denial")
 builder.add_edge("parse_denial", "retrieve_terms")
 builder.add_edge("retrieve_terms", "planning")

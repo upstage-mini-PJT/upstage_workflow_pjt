@@ -20,3 +20,7 @@ class OnboardingState(TypedDict, total=False):
     relevant_terms: str  # RAG로 가져온 관련 보험 약관
     plan: str  # 분쟁신청을 위한 전략/계획
     required_documents: list[str]  # 추가로 필요한 서류 목록 (다음 노드에서 수집)
+
+    # request_additional_documents 노드: interrupt 후 resume으로 받은 경로
+    additional_document_paths: list[str]
+   

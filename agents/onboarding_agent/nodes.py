@@ -18,38 +18,6 @@ from agents.onboarding_agent.schemas import (
     SufficiencyResponse
 )
 
-
-
-
-# def request_denial_file_node(OnboardingState: dict) -> dict:
-#     """
-#     Do-While 패턴: 일단 파일을 요청하고, 유효하지 않으면 계속 반복합니다.
-#     """
-#     # 1. 루프 시작 (Do)
-#     while True:
-#         # [Step 1: 요청] 노드 진입 즉시 중단하고 사용자 입력을 기다림
-#         user_input = interrupt({
-#             "action": "require_file",
-#             "message": "분석을 시작합니다. '보험금 지급 거부 명세서' 파일 경로를 입력해주세요."
-#         })
-
-#         # [Step 2: 입력값 추출]
-#         if isinstance(user_input, str):
-#             file_path = user_input.strip()
-#         else:
-#             file_path = user_input.get("denial_file_path", "").strip()
-
-#         # [Step 3: 검증] 파일이 존재하고 유효한지 확인 (While 조건)
-#         if file_path and os.path.exists(file_path):
-#             # 성공하면 루프 탈출
-#             break
-        
-#         # 유효하지 않으면 루프를 돌며 다시 interrupt를 만남 (에러 메시지 추가 가능)
-#         print(f"잘못된 경로 입력됨: {file_path}. 다시 시도합니다.")
-
-#     # 2. 유효한 경로를 찾았으므로 상태 업데이트
-#     return {"denial_file_path": file_path}
-
 def parse_denial_node(state: dict, config: RunnableConfig) -> dict:
     """
     denial_file_path를 DP로 파싱해 denial_statement_text만 state에 채운다.

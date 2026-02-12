@@ -45,67 +45,61 @@ from agents.onboarding_agent.schemas import PlanningResponse
 #     # 2. 유효한 경로를 찾았으므로 상태 업데이트
 #     return {"denial_file_path": file_path}
 
+def parse_denial_node(state: dict, config: RunnableConfig) -> dict:
+    """
+    denial_file_path를 DP로 파싱해 denial_statement_text만 state에 채운다.
+    읽기: denial_file_path, (선택) config.dp_client
+    쓰기: denial_statement_text
+    """
+    file_path = (state.get("denial_file_path") or "").strip()
+    if not file_path:
+        return {"denial_statement_text": ""}
+    try:
+        denial_text = parse_document(file_path)
+    except (FileNotFoundError, OSError):
+        denial_text = ""
+    return {"denial_statement_text": denial_text}
+
+
+def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
+    """
+    denial_statement_text로 RAG 조회 후 relevant_terms만 state에 채운다.
+    읽기: denial_statement_text
+    쓰기: relevant_terms
+    """
+    denial_text = (state.get("denial_statement_text") or "").strip()
+    relevant_terms = fetch_relevant_insurance_terms(denial_text, top_k=5)
+    return {"relevant_terms": relevant_terms or ""}
+
+
 def planning_node(state: dict, config: RunnableConfig) -> dict:
     """
-    사용자 입력 파일(거부 명세서)을 DP로 파싱하고, RAG로 관련 약관을 가져온 뒤
-    분쟁신청 전략을 세우고, 추가 필요 서류 목록을 Pydantic 스키마로 받아 state에 넣는다.
-
-    기대 state 입력: input_file_path (사용자에게 받은 파일 경로)
-    출력 state: denial_statement_text, relevant_terms, plan, required_documents
+    denial_statement_text와 relevant_terms를 바탕으로 LLM으로 전략·필요 서류만 생성한다.
+    DP/RAG 호출 없음. 읽기: denial_statement_text, relevant_terms / 쓰기: plan, required_documents
     """
-    file_path = (state.get("denial_file_path")).strip()
-    if not file_path:
-        return {
-            "denial_statement_text": "",
-            "relevant_terms": "",
-            "plan": "",
-            "required_documents": [],
-        }
+    denial_text = state.get("denial_statement_text") or ""
+    relevant_terms = state.get("relevant_terms") or ""
 
     configurable = (config or {}).get("configurable", {})
-    dp_client = configurable.get("dp_client")
     chat_client = configurable.get("chat_client")
-
-    if not dp_client:
-        return {
-            "denial_statement_text": "",
-            "relevant_terms": "",
-            "plan": "",
-            "required_documents": [],
-        }
-
-    # Upstage DP로 사용자 파일 파싱
-    denial_text = parse_document(file_path, dp_client)
-
-    # RAG: 관련 보험 약관 조회
-    relevant_terms = fetch_relevant_insurance_terms(denial_text, top_k=5) # 현재는 None으로 리턴 추후에 디비 구축시 연결
-  
     if not chat_client:
-        return {
-            "denial_statement_text": denial_text,
-            # "relevant_terms": relevant_terms,
-            "plan": "",
-            "required_documents": [],
-        }
+        return {"plan": "", "required_documents": []}
 
-    # LLM: Pydantic 스키마로 전략 + 필요 서류 목록 생성
     structured_llm = chat_client.with_structured_output(PlanningResponse)
     prompt = _build_planning_prompt(denial_text, relevant_terms)
     response: PlanningResponse = structured_llm.invoke([HumanMessage(content=prompt)])
-
     return {
-        "denial_statement_text": denial_text,
-        "relevant_terms": relevant_terms,
         "plan": response.plan,
         "required_documents": response.required_documents,
     }
 
 
 def _build_planning_prompt(denial_text: str, relevant_terms: str) -> str:
-    return f"""당신은 보험 분쟁 신청을 돕는 전문가입니다.
+    return f"""당신은 보험금 지급 분쟁 대리·상담 경험이 있는 전문가입니다.
+출력 시 거부 사유에 대한 약관·법적 근거를 전략에 반영하고, 서류는 실제 제출 가능한 구체적 명칭(퇴원요약서, 진단서, 소득증명원 등)으로 적어 주세요.
 
-아래는 보험사가 보험금 지급을 거부한 명세서 내용입니다(DP로 파싱됨).
-그리고 RAG로 가져온 관련 보험 약관입니다.
+아래 [거부 명세서]는 문서 파싱(DP) 결과, [관련 보험 약관]은 RAG 검색 결과입니다.
+약관이 제공되지 않은 경우에도 명세서 내용만으로 전략과 필요 서류를 제시해 주세요.
 
 [거부 명세서]
 {denial_text}
@@ -113,8 +107,13 @@ def _build_planning_prompt(denial_text: str, relevant_terms: str) -> str:
 [관련 보험 약관]
 {relevant_terms or "(아직 약관 DB가 연결되지 않았습니다.)"}
 
-다음 두 가지를 작성해 주세요.
+다음 두 가지를 구조화된 형식으로 작성해 주세요.
 
-1) 피보험자의 현재 상황을 요약하세요, 분쟁신청을 위한 전략/계획을 구체적으로 서술하세요.
-2) 전략적인 분쟁 신청을 위해 추가로 제출이 필요한 서류 목록을 최대 3개와 관련 키워드를 나열하세요.
+1) plan (전략/계획)
+- 상황 요약: 피보험자, 보험 종목, 거부 사유, 금액 등 핵심 사실만 2~3문장으로 간결히 요약하세요.
+- 전략/계획: 거부 사유에 대한 법·약관상 논거, 분쟁 조정·심사 청구 시 강조할 포인트, 필요 시 보완할 증거(서류)와의 연결을 구체적으로 3~5문장 이상 서술하세요.
+
+2) required_documents (추가 필요 서류)
+- 전략적인 분쟁 신청을 위해 "추가로" 제출이 필요한 서류만 나열하세요. 이미 거부 명세서에 포함된 자료는 제외합니다.
+- 위 전략에서 필요하다고 판단한 서류만 최대 3개, 각 항목은 "서류명 (목적/키워드)" 형식으로 적고, 서류명은 퇴원요약서·진단서·소득증명원 등 실제 제출 가능한 구체적 명칭을 사용하세요.
 """

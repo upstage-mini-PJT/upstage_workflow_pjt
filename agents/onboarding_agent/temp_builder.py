@@ -15,7 +15,7 @@ from langchain_upstage import (
     UpstageUniversalInformationExtraction,
 )
 from langgraph.checkpoint.memory import MemorySaver
-from .nodes import  planning_node
+from .nodes import parse_denial_node, retrieve_terms_node, planning_node
 from .state import OnboardingState
 import uuid
 # 상위 위치에 있는 env파일을 참조하기 위해 루트 조정(추후에 외부 그래프에서 실행시에는 필요없는 로직)
@@ -25,11 +25,14 @@ dotenv_path = root_dir / ".env"
 load_dotenv(dotenv_path=dotenv_path)
 
 
-# 1. 그래프 빌드
+# 1. 그래프 빌드: parse_denial → retrieve_terms → planning
 builder = StateGraph(OnboardingState)
-# builder.add_node("request_denial_file", request_denial_file_node)
+builder.add_node("parse_denial", parse_denial_node)
+builder.add_node("retrieve_terms", retrieve_terms_node)
 builder.add_node("planning", planning_node)
-builder.add_edge(START, "planning")
+builder.add_edge(START, "parse_denial")
+builder.add_edge("parse_denial", "retrieve_terms")
+builder.add_edge("retrieve_terms", "planning")
 builder.add_edge("planning", END)
 
 memory = MemorySaver()
@@ -49,8 +52,8 @@ if __name__ == "__main__":
     # [Step 2: 설정 준비]
     runnable_config: RunnableConfig = {
         "configurable": {
-            "dp_client": UpstageUniversalInformationExtraction(),
-            "chat_client": ChatUpstage(model="solar-pro"),
+            "ie_client": UpstageUniversalInformationExtraction(),
+            "chat_client": ChatUpstage(model="solar-pro2"),
             "thread_id": thread_id
         }
     }

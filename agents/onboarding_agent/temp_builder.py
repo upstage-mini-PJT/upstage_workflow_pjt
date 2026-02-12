@@ -20,7 +20,8 @@ from .nodes import (
     retrieve_terms_node,
     planning_node,
     request_additional_documents_node,
-    parse_and_extract_node
+    parse_and_extract_node,
+    evaluate_sufficiency_node
 )
 from .state import OnboardingState
 import uuid
@@ -38,12 +39,30 @@ builder.add_node("retrieve_terms", retrieve_terms_node)
 builder.add_node("planning", planning_node)
 builder.add_node("request_additional_documents", request_additional_documents_node)
 builder.add_node("parse_and_extract",parse_and_extract_node)
+builder.add_node("evaluate_sufficiency_node", evaluate_sufficiency_node)
+
+
 builder.add_edge(START, "parse_denial")
 builder.add_edge("parse_denial", "retrieve_terms")
 builder.add_edge("retrieve_terms", "planning")
 builder.add_edge("planning", "request_additional_documents")
 builder.add_edge("request_additional_documents", "parse_and_extract")
-builder.add_edge("parse_and_extract", END)
+builder.add_edge("parse_and_extract", "evaluate_sufficiency_node"),
+
+
+
+def _evidence_sufficiency_path(state: dict) -> str:
+    """evidence_sufficient가 True면 END, False면 request_additional_documents로 복귀."""
+    if state.get("evidence_sufficient"):
+        return "__end__"
+    return "request_additional_documents"
+
+
+builder.add_conditional_edges(
+    "evaluate_sufficiency",
+    _evidence_sufficiency_path,
+    {"__end__": END, "request_additional_documents": "request_additional_documents"},
+)
 
 memory = MemorySaver()
 onboarding_graph = builder.compile(checkpointer=memory)

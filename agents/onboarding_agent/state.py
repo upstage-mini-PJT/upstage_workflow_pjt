@@ -26,4 +26,5 @@ class OnboardingState(TypedDict, total=False):
 
     # parse_and_extract 노드: 문서별 추출 정보 (additional_document_paths와 순서 대응)
     extracted_document_infos: list[dict]
-   
+      # evaluate_sufficiency 노드: True면 다음 단계, False면 request_additional로 복귀
+    evidence_sufficient: bool

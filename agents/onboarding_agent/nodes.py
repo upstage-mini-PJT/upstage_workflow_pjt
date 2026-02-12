@@ -14,7 +14,8 @@ from tools.rag_terms import fetch_relevant_insurance_terms
 
 from agents.onboarding_agent.schemas import (
     PlanningResponse,
-    ExtractedDocumentInfo
+    ExtractedDocumentInfo,
+    SufficiencyResponse
 )
 
 
@@ -200,3 +201,38 @@ def _build_extract_prompt(doc_text: str, plan: str, required_documents: list) ->
 [문서 내용]
 {doc_text[:6000] if doc_text else "(빈 문서)"}
 """
+
+
+def evaluate_sufficiency_node(state: dict, config: RunnableConfig) -> dict:
+    """
+    추출된 정보를 합쳐서 분쟁 신청을 위한 근거가 충분한지 판단.
+    읽기: plan, required_documents, extracted_document_infos / 쓰기: evidence_sufficient
+    """
+    infos = state.get("extracted_document_infos") or []
+    if not infos:
+        return {"evidence_sufficient": False}
+
+    configurable = (config or {}).get("configurable", {})
+    chat_client = configurable.get("chat_client")
+    if not chat_client:
+        return {"evidence_sufficient": False}
+
+    plan = state.get("plan") or ""
+    required = state.get("required_documents") or []
+    prompt = _build_sufficiency_prompt(plan, required, infos)
+    structured_llm = chat_client.with_structured_output(SufficiencyResponse)
+    response: SufficiencyResponse = structured_llm.invoke([HumanMessage(content=prompt)])
+    return {"evidence_sufficient": response.sufficient}
+
+
+def _build_sufficiency_prompt(plan: str, required_documents: list, extracted_infos: list[dict]) -> str:
+    req_str = "\n".join(f"- {r}" for r in (required_documents or [])) or "(없음)"
+    docs_str = ""
+    for i, info in enumerate(extracted_infos, 1):
+        docs_str += f"\n[문서 {i}]\n"
+        docs_str += f"핵심 데이터: {info.get('key_data', '')}\n"
+        docs_str += f"근거: {info.get('evidence_or_grounds', '')}\n"
+        docs_str += f"기타: {info.get('helpful_notes', '')}\n"
+    return f"""분쟁 신청 계획과 요청했던 서류, 그리고 아래 추출된 문서별 정보를 종합했을 때, 분쟁 신청을 진행하기에 **근거가 충분한지** 판단해 주세요.
+    충분하면 sufficient=True, 부족하면 sufficient=False로 답하세요.
+    """

@@ -21,3 +21,12 @@ class ExtractedDocumentInfo(BaseModel):
     key_data: str = Field(description="분쟁 신청에 필요한 핵심 데이터(날짜, 금액, 진단명 등)")
     evidence_or_grounds: str = Field(description="근거가 되는 문구 또는 사실")
     helpful_notes: str = Field(default="", description="기타 도움이 되는 정보")
+class SufficiencyResponse(BaseModel):
+    """evaluate_sufficiency 노드 LLM 응답 스키마."""
+
+    sufficient: bool = Field(description="분쟁 신청에 필요한 근거가 충분한지 여부")
+    
+class SufficiencyResponse(BaseModel):
+    """evaluate_sufficiency 노드 LLM 응답 스키마."""
+
+    sufficient: bool = Field(description="분쟁 신청에 필요한 근거가 충분한지 여부")

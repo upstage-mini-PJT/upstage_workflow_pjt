@@ -23,4 +23,7 @@ class OnboardingState(TypedDict, total=False):
 
     # request_additional_documents 노드: interrupt 후 resume으로 받은 경로
     additional_document_paths: list[str]
+
+    # parse_and_extract 노드: 문서별 추출 정보 (additional_document_paths와 순서 대응)
+    extracted_document_infos: list[dict]
    

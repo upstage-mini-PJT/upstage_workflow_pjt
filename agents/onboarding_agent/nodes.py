@@ -13,9 +13,8 @@ from tools.document_parser import parse_document
 from tools.rag_terms import fetch_relevant_insurance_terms
 
 from agents.onboarding_agent.schemas import (
-    
-    PlanningResponse
-    
+    PlanningResponse,
+    ExtractedDocumentInfo
 )
 
 
@@ -149,4 +148,55 @@ def _build_planning_prompt(denial_text: str, relevant_terms: str) -> str:
 2) required_documents (추가 필요 서류)
 - 전략적인 분쟁 신청을 위해 "추가로" 제출이 필요한 서류만 나열하세요. 이미 거부 명세서에 포함된 자료는 제외합니다.
 - 위 전략에서 필요하다고 판단한 서류만 최대 3개, 각 항목은 "서류명 (목적/키워드)" 형식으로 적고, 서류명은 퇴원요약서·진단서·소득증명원 등 실제 제출 가능한 구체적 명칭을 사용하세요.
+"""
+
+def parse_and_extract_node(state: dict, config: RunnableConfig) -> dict:
+    """
+    additional_document_paths 각 경로를 DP로 파싱한 뒤, 문서별로 LLM에 넣어 필요한 데이터·근거만 추출해 state에 저장.
+    읽기: additional_document_paths, (선택) plan, required_documents / 쓰기: extracted_document_infos
+    """
+    paths = state.get("additional_document_paths") or []
+    if not paths:
+        return {"extracted_document_infos": []}
+
+    configurable = (config or {}).get("configurable", {})
+    chat_client = configurable.get("chat_client")
+    plan = state.get("plan") or ""
+    required = state.get("required_documents") or []
+
+    extracted: list[dict] = []
+    for path in paths:
+        try:
+            raw_text = parse_document(path)
+        except (FileNotFoundError, OSError):
+            raw_text = ""
+        if not raw_text:
+            extracted.append(
+                {"key_data": "", "evidence_or_grounds": "", "helpful_notes": "(파싱 실패 또는 빈 문서)"}
+            )
+            continue
+        if not chat_client:
+            extracted.append(
+                {"key_data": raw_text[:500], "evidence_or_grounds": "", "helpful_notes": ""}
+            )
+            continue
+        structured_llm = chat_client.with_structured_output(ExtractedDocumentInfo)
+        prompt = _build_extract_prompt(raw_text, plan, required)
+        response: ExtractedDocumentInfo = structured_llm.invoke([HumanMessage(content=prompt)])
+        extracted.append(response.model_dump())
+    return {"extracted_document_infos": extracted}
+
+
+def _build_extract_prompt(doc_text: str, plan: str, required_documents: list) -> str:
+    req_str = ", ".join(required_documents) if required_documents else "(없음)"
+    return f"""아래는 추가 제출 서류의 문서 내용입니다. 분쟁 신청에 필요한 핵심 데이터, 근거가 되는 문구, 기타 도움이 되는 정보만 추출해 주세요.
+
+[참고: 분쟁 신청 계획]
+{plan[:800] if plan else "(없음)"}
+
+[요청했던 서류 목록]
+{req_str}
+
+[문서 내용]
+{doc_text[:6000] if doc_text else "(빈 문서)"}
 """

@@ -19,7 +19,8 @@ from .nodes import (
     parse_denial_node,
     retrieve_terms_node,
     planning_node,
-    request_additional_documents_node
+    request_additional_documents_node,
+    parse_and_extract_node
 )
 from .state import OnboardingState
 import uuid
@@ -36,12 +37,13 @@ builder.add_node("parse_denial", parse_denial_node)
 builder.add_node("retrieve_terms", retrieve_terms_node)
 builder.add_node("planning", planning_node)
 builder.add_node("request_additional_documents", request_additional_documents_node)
-builder.add_node("request_additional_documents", END)
-
+builder.add_node("parse_and_extract",parse_and_extract_node)
 builder.add_edge(START, "parse_denial")
 builder.add_edge("parse_denial", "retrieve_terms")
 builder.add_edge("retrieve_terms", "planning")
-builder.add_edge("planning", END)
+builder.add_edge("planning", "request_additional_documents")
+builder.add_edge("request_additional_documents", "parse_and_extract")
+builder.add_edge("parse_and_extract", END)
 
 memory = MemorySaver()
 onboarding_graph = builder.compile(checkpointer=memory)

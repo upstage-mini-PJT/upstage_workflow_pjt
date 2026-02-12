@@ -4,8 +4,8 @@ Upstage Document Parse(DP)를 사용해 파일을 텍스트로 파싱.
 """
 
 from pathlib import Path
-
 from langchain_upstage import UpstageDocumentParseLoader
+from langchain_upstage.document_parse_parsers import OutputFormat
 
 
 def parse_document(file_path: str) -> str:
@@ -23,6 +23,6 @@ def parse_document(file_path: str) -> str:
         raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
 
     
-    loader = UpstageDocumentParseLoader(str(path), ocr = 'auto')
+    loader = UpstageDocumentParseLoader(str(path), ocr = 'auto', output_format = "markdown")
     docs = loader.load()
     return "\n\n".join(doc.page_content for doc in docs)

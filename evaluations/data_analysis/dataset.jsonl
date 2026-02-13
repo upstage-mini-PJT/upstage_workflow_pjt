@@ -1,0 +1,2 @@
+{"id":"sample-1","structured_case":{"user_info":{"age":45},"denial_summary":"입원의학적 필요성 부족으로 보험금 부지급","denial_reasons":["입원 필요성 부족","면책조항 해당"],"policy_clauses":["입원 정의 조항","면책 조항"],"timeline":[{"date":"2025-01-10","description":"입원 치료 시작","actor":"insured"}],"evidence_summary":[{"title":"진단서","summary":"의학적 필요성 소견 포함","document_type":"medical_record"}],"open_questions":["입원 기간의 적정성 입증 자료 부족"]}}
+{"id":"sample-2","structured_case":{"denial_summary":"진단코드 기준 부지급","denial_reasons":["진단코드 기준 부지급"],"policy_clauses":[],"timeline":[],"evidence_summary":[],"open_questions":[]}}

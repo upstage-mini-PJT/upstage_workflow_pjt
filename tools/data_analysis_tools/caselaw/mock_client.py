@@ -105,8 +105,10 @@ class MockCaseLawClient:
         
         # 정렬: 점수 내림차순 -> 날짜 내림차순
         results.sort(key=lambda x: (x.relevance_score, x.date), reverse=True)
-        
-        return results[:query.top_k]
+
+        # Backward compatibility: if top_k is missing, use a safe default.
+        top_k = getattr(query, "top_k", 5)
+        return results[:top_k]
 
     def _load_cases(self) -> List[Dict[str, Any]]:
         """Mock JSON 파일 로드"""

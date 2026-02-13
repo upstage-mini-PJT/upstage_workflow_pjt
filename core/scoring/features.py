@@ -76,8 +76,8 @@ def extract_features(
 def _extract_precedent_features(caselaws: List[CaseLawDoc]) -> Dict[str, Any]:
     """판례 관련 feature 추출"""
     
-    # 유사 판례 존재 여부 (relevance_score > 0.7)
-    high_relevance_cases = [c for c in caselaws if c.relevance_score > 0.7]
+    # 유사 판례 존재 여부 (relevance_score > 0.5)
+    high_relevance_cases = [c for c in caselaws if c.relevance_score > 0.5]
     has_similar_precedent = len(high_relevance_cases) > 0
     
     # 판례 개수
@@ -130,12 +130,22 @@ def _extract_evidence_features(case: StructuredCase) -> Dict[str, Any]:
     
     # 사실 관계에서 증빙 출처 확인
     sources = [fact.source for fact in case.facts if fact.source]
+    events = [fact.event for fact in case.facts if fact.event]
+    source_blob = " ".join(sources)
+    event_blob = " ".join(events)
+    combined_blob = f"{source_blob} {event_blob}"
     
     # 진료기록 존재 여부
-    has_medical_records = any("진료기록" in s or "의무기록" in s for s in sources)
+    has_medical_records = any(
+        keyword in combined_blob
+        for keyword in ["진료기록", "의무기록", "검사결과", "EMR", "차트"]
+    )
     
     # 의사 소견서 존재 여부
-    has_doctor_note = any("소견서" in s or "진단서" in s for s in sources)
+    has_doctor_note = any(
+        keyword in combined_blob
+        for keyword in ["소견서", "진단서", "의사소견", "주치의 소견"]
+    )
     
     # 증빙 완전성 계산 (0-1)
     evidence_score = 0.0

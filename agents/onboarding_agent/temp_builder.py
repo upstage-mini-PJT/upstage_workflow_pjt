@@ -9,6 +9,7 @@ from agents.onboarding_agent.state import OnboardingState
 from pathlib import Path
 from dotenv import load_dotenv
 from langgraph.graph import START, END, StateGraph
+from langgraph.types import Command
 from langchain_core.runnables import RunnableConfig
 from langchain_upstage import (
     ChatUpstage,
@@ -47,7 +48,7 @@ builder.add_edge("parse_denial", "retrieve_terms")
 builder.add_edge("retrieve_terms", "planning")
 builder.add_edge("planning", "request_additional_documents")
 builder.add_edge("request_additional_documents", "parse_and_extract")
-builder.add_edge("parse_and_extract", "evaluate_sufficiency_node"),
+builder.add_edge("parse_and_extract", "evaluate_sufficiency_node")
 
 
 
@@ -59,7 +60,7 @@ def _evidence_sufficiency_path(state: dict) -> str:
 
 
 builder.add_conditional_edges(
-    "evaluate_sufficiency",
+    "evaluate_sufficiency_node",
     _evidence_sufficiency_path,
     {"__end__": END, "request_additional_documents": "request_additional_documents"},
 )
@@ -77,7 +78,7 @@ if __name__ == "__main__":
 
     # [Step 1: 외부 전처리] 그래프 실행 전, 유효한 파일 경로 받기
     valid_file_path = "/Users/chanwooyang/workspace/upstage_workflow_pjt/agents/onboarding_agent/korean_denial_mock.pdf"
-    
+
     # [Step 2: 설정 준비]
     runnable_config: RunnableConfig = {
         "configurable": {
@@ -87,16 +88,32 @@ if __name__ == "__main__":
         }
     }
 
-    # [Step 3: 그래프 실행] 준비된 파일을 가지고 단 한 번 실행!
+    # [Step 3: 그래프 실행] interrupt 발생 시 resume 루프 until END
     print(f"\n--- 🤖 그래프 분석 시작 (파일: {valid_file_path}) ---")
-    
-    # interrupt 루프 없이 깔끔하게 한 번만 호출하면 됩니다.
-    # 초기 상태(state)에 검증된 파일 경로를 넣어줍니다.
-    final_state = onboarding_graph.invoke(
-        {"denial_file_path": valid_file_path}, 
+
+    result = onboarding_graph.invoke(
+        {"denial_file_path": valid_file_path},
         config=runnable_config
     )
 
+    # 문서 요청 개수는 항상 3개이므로, resume 시 korean_denial_mock 경로 3개 리스트로 전달
+    mock_document_list = [valid_file_path] * 3
+
+    while result.get("__interrupt__"):
+        interrupt_list = result["__interrupt__"]
+        payload = interrupt_list[0].value if interrupt_list else {}
+        required = payload.get("required_documents", []) if isinstance(payload, dict) else []
+        print(f"  [interrupt] 요청 서류: {required} → resume with {len(mock_document_list)}개 mock 경로")
+        result = onboarding_graph.invoke(
+            Command(resume=mock_document_list),
+            config=runnable_config
+        )
+
+    final_state = result
     print("\n--- ✅ 분석 완료 ---")
-    print(f"결과 Plan: {final_state.get('plan')[:100]}...") # 결과 일부 출력
-    print(f"필요 서류: {final_state.get('required_documents')}")
+    plan = final_state.get("plan") or ""
+    if plan:
+        print(f"결과 Plan: {plan[:100]}{'...' if len(plan) > 100 else ''}")
+    req_docs = final_state.get("required_documents")
+    if req_docs is not None:
+        print(f"필요 서류: {req_docs}")

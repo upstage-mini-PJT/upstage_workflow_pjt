@@ -7,12 +7,14 @@ class TimelineEvent(TypedDict, total=False):
     date: str
     description: str
     actor: str
+    source: str
 
 
 class EvidenceSummaryItem(TypedDict, total=False):
     title: str
     summary: str
     document_type: str
+    source: str
 
 
 class StructuredCase(TypedDict, total=False):

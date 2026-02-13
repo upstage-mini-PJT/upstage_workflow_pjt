@@ -1,38 +1,73 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 import yaml
 
 from core.schemas.analysis import SuccessProbability
 
-DEFAULT_WEIGHTS: dict[str, float] = {
-    "evidence_count": 8.0,
-    "retrieved_case_count": 5.0,
-    "top_relevance": 40.0,
-    "avg_relevance": 30.0,
-    "open_question_count": -5.0,
+
+DEFAULT_RUBRIC: dict[str, Any] = {
+    "base_score": 45,
+    "bands": {
+        "LOW": {"min": 0, "max": 39},
+        "MEDIUM": {"min": 40, "max": 69},
+        "HIGH": {"min": 70, "max": 100},
+    },
+    "assumptions": [
+        "본 점수는 규칙 기반 참고 지표이며 법률 자문을 대체하지 않음",
+        "입력 데이터 품질과 검색 품질에 따라 변동 가능",
+    ],
+    "rules": [
+        {"condition": "has_similar_precedent == True", "score_delta": 10, "driver": "유사 판례 존재", "category": "positive"},
+        {"condition": "precedent_win_rate >= 0.6", "score_delta": 8, "driver": "유사 판례 승소 경향", "category": "positive"},
+        {"condition": "top_relevance >= 0.5", "score_delta": 10, "driver": "상위 근거 관련도 높음", "category": "positive"},
+        {"condition": "evidence_completeness >= 0.7", "score_delta": 8, "driver": "증빙 완결도 높음", "category": "positive"},
+        {"condition": "evidence_completeness >= 0.9", "score_delta": 6, "driver": "핵심 증빙이 충분히 확보됨", "category": "positive"},
+        {"condition": "evidence_completeness < 0.3", "score_delta": -10, "driver": "핵심 증빙 부족", "category": "negative"},
+        {"condition": "open_question_count >= 2", "score_delta": -7, "driver": "미해결 쟁점 다수", "category": "negative"},
+        {"condition": "avg_relevance < 0.2", "score_delta": -8, "driver": "근거 관련도 낮음", "category": "negative"},
+    ],
 }
 
 
-def _load_weights(rubric_path: str | None) -> dict[str, float]:
+def _load_rubric(rubric_path: str | None) -> dict[str, Any]:
     if not rubric_path:
-        return DEFAULT_WEIGHTS
+        return DEFAULT_RUBRIC
+
     path = Path(rubric_path)
     if not path.exists():
-        return DEFAULT_WEIGHTS
+        return DEFAULT_RUBRIC
+
     try:
         loaded = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        weights = loaded.get("weights", {})
-        if isinstance(weights, dict) and weights:
-            return {str(k): float(v) for k, v in weights.items()}
+        if isinstance(loaded, dict):
+            merged = dict(DEFAULT_RUBRIC)
+            merged.update(loaded)
+            return merged
     except Exception:
-        return DEFAULT_WEIGHTS
-    return DEFAULT_WEIGHTS
+        return DEFAULT_RUBRIC
+    return DEFAULT_RUBRIC
 
 
-def _band(score: int) -> Literal["LOW", "MEDIUM", "HIGH"]:
+def _evaluate_condition(condition: str, features: dict[str, Any]) -> bool:
+    if not condition:
+        return False
+    namespace = {"True": True, "False": False, "None": None, **features}
+    try:
+        return bool(eval(condition, {"__builtins__": {}}, namespace))
+    except Exception:
+        return False
+
+
+def _score_to_band(score: int, bands: dict[str, Any]) -> Literal["LOW", "MEDIUM", "HIGH"]:
+    for name, config in bands.items():
+        mn = int(config.get("min", 0))
+        mx = int(config.get("max", 100))
+        if mn <= score <= mx:
+            if name in {"LOW", "MEDIUM", "HIGH"}:
+                return name
     if score <= 39:
         return "LOW"
     if score <= 69:
@@ -40,38 +75,35 @@ def _band(score: int) -> Literal["LOW", "MEDIUM", "HIGH"]:
     return "HIGH"
 
 
-def score_success(
-    features: dict[str, float],
-    rubric_path: str | None = None,
-) -> SuccessProbability:
-    weights = _load_weights(rubric_path)
-    weighted_sum = 20.0
-    for key, weight in weights.items():
-        weighted_sum += features.get(key, 0.0) * weight
-
-    raw_score = int(max(0, min(100, round(weighted_sum))))
-    band = _band(raw_score)
+def score_success(features: dict[str, Any], rubric_path: str | None = None) -> SuccessProbability:
+    rubric = _load_rubric(rubric_path)
+    score = int(rubric.get("base_score", 45))
 
     positive_drivers: list[str] = []
     negative_drivers: list[str] = []
-    if features.get("evidence_count", 0.0) > 0:
-        positive_drivers.append("기초 증빙이 확보되어 있음")
-    if features.get("retrieved_case_count", 0.0) > 0:
-        positive_drivers.append("유사 사례 근거를 확보함")
-    if features.get("avg_relevance", 0.0) < 0.1:
-        negative_drivers.append("유사 판례와의 정합성이 낮음")
-    if features.get("open_question_count", 0.0) > 0:
-        negative_drivers.append("해결되지 않은 쟁점 질문이 남아 있음")
 
-    assumptions = [
-        "본 점수는 규칙 기반 참고 지표이며 법률 자문을 대체하지 않음",
-        "입력 StructuredCase와 mock retrieval 품질에 따라 변동 가능",
-    ]
+    for rule in rubric.get("rules", []):
+        condition = str(rule.get("condition", ""))
+        if not _evaluate_condition(condition, features):
+            continue
+
+        delta = int(rule.get("score_delta", 0))
+        driver = str(rule.get("driver", ""))
+        category = str(rule.get("category", "positive"))
+
+        score += delta
+        if delta > 0 and category == "positive" and driver:
+            positive_drivers.append(driver)
+        if delta < 0 and category == "negative" and driver:
+            negative_drivers.append(driver)
+
+    score = max(0, min(100, score))
+    band = _score_to_band(score, rubric.get("bands", {}))
 
     return SuccessProbability(
-        score=raw_score,
+        score=score,
         band=band,
         positive_drivers=positive_drivers,
         negative_drivers=negative_drivers,
-        assumptions=assumptions,
+        assumptions=[str(x) for x in rubric.get("assumptions", [])],
     )

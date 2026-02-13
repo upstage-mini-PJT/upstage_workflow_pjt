@@ -28,27 +28,33 @@ def evaluate(dataset_path: str = "evaluations/data_analysis/dataset.jsonl") -> d
             "schema_completeness_avg": 0.0,
             "provenance_coverage_avg": 0.0,
             "band_validity_rate": 0.0,
+            "expected_band_accuracy": 0.0,
         }
 
     schema_scores: list[float] = []
     provenance_scores: list[float] = []
     valid_bands = 0
+    expected_hits = 0
 
     for row in dataset:
-        structured_case = row.get("structured_case", {})
-        result = run(structured_case)
+        result = run(row.get("structured_case", {}))
         schema_scores.append(schema_completeness(result))
         provenance_scores.append(provenance_coverage(result))
+
         if band_validity(result):
             valid_bands += 1
 
-    output = {
+        expected_band = row.get("expected_band")
+        if expected_band and result.get("success_probability", {}).get("band") == expected_band:
+            expected_hits += 1
+
+    return {
         "count": len(dataset),
         "schema_completeness_avg": round(sum(schema_scores) / len(schema_scores), 4),
         "provenance_coverage_avg": round(sum(provenance_scores) / len(provenance_scores), 4),
         "band_validity_rate": round(valid_bands / len(dataset), 4),
+        "expected_band_accuracy": round(expected_hits / len(dataset), 4),
     }
-    return output
 
 
 if __name__ == "__main__":

@@ -3,16 +3,18 @@ from __future__ import annotations
 from core.schemas.analysis import AnalysisResult
 
 
+REQUIRED_KEYS = {
+    "issue_tree",
+    "gap_analysis",
+    "recommended_actions",
+    "success_probability",
+    "evidence_pack",
+}
+
+
 def schema_completeness(result: AnalysisResult) -> float:
-    required_keys = {
-        "issue_tree",
-        "gap_analysis",
-        "recommended_actions",
-        "success_probability",
-        "evidence_pack",
-    }
-    present = sum(1 for key in required_keys if key in result)
-    return present / len(required_keys)
+    present = sum(1 for key in REQUIRED_KEYS if key in result)
+    return present / len(REQUIRED_KEYS)
 
 
 def provenance_coverage(result: AnalysisResult) -> float:

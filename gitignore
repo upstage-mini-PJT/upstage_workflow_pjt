@@ -1,0 +1,120 @@
+########################################
+# OS / Editor
+########################################
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+*.iml
+
+########################################
+# Secrets / env
+########################################
+.env
+.env.*
+!.env.example
+
+########################################
+# Python (uv / FastAPI)
+########################################
+# virtualenv
+.venv/
+venv/
+ENV/
+env/
+
+# python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+.cache/
+
+# build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# uv cache (uv uses XDG cache by default; keep local caches out)
+.uv/
+.uv-cache/
+uv-cache/
+.python-version
+
+########################################
+# Logs
+########################################
+*.log
+logs/
+**/logs/
+*.sqlite3
+
+########################################
+# FastAPI uploads / runtime data
+########################################
+# business card images, local uploads (PRD: /uploads/cards/...)
+uploads/
+**/uploads/
+storage/
+data/
+tmp/
+temp/
+
+########################################
+# Node / React
+########################################
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# build output
+dist/
+build/
+out/
+
+# dotenv for frontend (CRA/Vite)
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+########################################
+# Docker
+########################################
+# local override files
+docker-compose.override.yml
+docker-compose.*.yml
+
+########################################
+# Neo4j (local volumes / dumps)
+########################################
+neo4j_data/
+neo4j/
+graph_data/
+dump/
+backups/
+
+########################################
+# Test / Coverage
+########################################
+coverage/
+*.lcov
+
+########################################
+# Misc
+########################################
+*.swp
+*.swo
+data_analysis.md

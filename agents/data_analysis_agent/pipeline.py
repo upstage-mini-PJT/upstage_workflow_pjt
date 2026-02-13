@@ -27,6 +27,8 @@ from tools.data_analysis_tools.caselaw.types import CaseLawDoc, RankedCaseLawDoc
 
 class DataAnalysisState(TypedDict, total=False):
     structured_case: StructuredCase
+    analysis_options: dict[str, Any]
+    rag_result: dict[str, Any]
     queries: list[RetrievalQuery]
     raw_cases: list[dict[str, Any]]
     normalized_cases: list[CaseLawDoc]
@@ -39,6 +41,8 @@ class DataAnalysisState(TypedDict, total=False):
     case_adjustment: int
     adjustment_notes: list[str]
     success_probability: SuccessProbability
+    scoring_trace: dict[str, Any]
+    strategy_context: dict[str, Any]
     evidence_pack: list[dict[str, Any]]
     analysis_result: AnalysisResult
 
@@ -328,9 +332,18 @@ def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
         f"total_score={total_score}",
     ]
 
+    scoring_trace = {
+        "precedent_score": precedent_score,
+        "case_adjustment": adjustment,
+        "total_score": total_score,
+        "guardrails_applied": notes,
+        "cited_case_ids": [],
+    }
+
     return {
         "case_adjustment": adjustment,
         "adjustment_notes": notes,
+        "scoring_trace": scoring_trace,
         "success_probability": SuccessProbability(
             score=total_score,
             band=total_band,
@@ -341,27 +354,210 @@ def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
     }
 
 
+def _normalize_rag_result(rag_result: dict[str, Any] | None) -> dict[str, Any]:
+    if not rag_result or not isinstance(rag_result, dict):
+        return {"items": [], "stats": {}}
+
+    items = []
+    for raw in rag_result.get("items", []):
+        source_type = str(raw.get("source_type", "CASELAW")).upper()
+        if source_type not in {"CASELAW", "DISPUTE", "WEB"}:
+            source_type = "CASELAW"
+
+        item = {
+            "source_type": source_type,
+            "doc_id": str(raw.get("doc_id", "")),
+            "chunk_id": str(raw.get("chunk_id", "")),
+            "title": str(raw.get("title", "")),
+            "snippet": str(raw.get("snippet", "")),
+            "score": float(raw.get("score", 0.0) or 0.0),
+            "rerank_score": float(raw.get("rerank_score", 0.0) or 0.0),
+            "url": raw.get("url"),
+            "published_at": raw.get("published_at"),
+            "provenance": dict(raw.get("provenance", {})),
+        }
+        items.append(item)
+
+    return {
+        "query_id": str(rag_result.get("query_id", "")),
+        "query": str(rag_result.get("query", "")),
+        "filters": dict(rag_result.get("filters", {})),
+        "items": items,
+        "stats": dict(rag_result.get("stats", {})),
+    }
+
+
+def _select_strategy_evidence(rag_items: list[dict[str, Any]], top_n: int = 5) -> list[dict[str, Any]]:
+    if not rag_items:
+        return []
+
+    source_weight = {"CASELAW": 1.0, "DISPUTE": 0.85, "WEB": 0.5}
+
+    ranked = []
+    for item in rag_items:
+        rerank = float(item.get("rerank_score", 0.0) or 0.0)
+        score = float(item.get("score", 0.0) or 0.0)
+        source_type = str(item.get("source_type", "CASELAW"))
+        weighted = (rerank * 0.75 + score * 0.25) * source_weight.get(source_type, 0.7)
+
+        copied = dict(item)
+        copied["weighted_rank"] = round(weighted, 6)
+        ranked.append(copied)
+
+    ranked.sort(key=lambda x: x.get("weighted_rank", 0.0), reverse=True)
+    return ranked[:top_n]
+
+
+def _group_evidence_by_issue(issues: list[IssueNode], evidence: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    mapping: dict[str, list[dict[str, Any]]] = {}
+    if not issues:
+        return mapping
+
+    for issue in issues:
+        issue_id = str(issue.get("issue_id", "ISSUE-1"))
+        issue_terms = " ".join(
+            [
+                str(issue.get("title", "")),
+                str(issue.get("description", "")),
+                " ".join(issue.get("related_denial_reasons", [])),
+                " ".join(issue.get("related_policy_clauses", [])),
+            ]
+        )
+
+        matched: list[dict[str, Any]] = []
+        for item in evidence:
+            blob = " ".join(
+                [
+                    str(item.get("title", "")),
+                    str(item.get("snippet", "")),
+                    str(item.get("doc_id", "")),
+                ]
+            )
+            if any(term and term in blob for term in issue_terms.split()):
+                matched.append(item)
+
+        if not matched:
+            matched = evidence[:2]
+        mapping[issue_id] = matched[:2]
+
+    return mapping
+
+
+def _build_strategy_context_node(state: DataAnalysisState) -> DataAnalysisState:
+    issue_nodes = state.get("issue_tree", {}).get("nodes", [])
+    rag_result = _normalize_rag_result(state.get("rag_result", {}))
+
+    if rag_result.get("items"):
+        top_evidence = _select_strategy_evidence(rag_result.get("items", []), top_n=5)
+    else:
+        fallback_items: list[dict[str, Any]] = []
+        for row in state.get("ranked_cases", []):
+            fallback_items.append(
+                {
+                    "source_type": "CASELAW" if row.get("source_type", "caselaw") == "caselaw" else "DISPUTE",
+                    "doc_id": row.get("doc_id", ""),
+                    "chunk_id": "",
+                    "title": row.get("title", ""),
+                    "snippet": row.get("summary", ""),
+                    "score": float(row.get("relevance_score", 0.0)),
+                    "rerank_score": float(row.get("relevance_score", 0.0)),
+                    "url": None,
+                    "published_at": None,
+                    "provenance": {},
+                }
+            )
+        top_evidence = _select_strategy_evidence(fallback_items, top_n=5)
+
+    issue_evidence_map = _group_evidence_by_issue(issue_nodes, top_evidence)
+
+    coverage = {}
+    risk_flags: list[str] = []
+    for issue in issue_nodes:
+        issue_id = str(issue.get("issue_id", "ISSUE-1"))
+        count = len(issue_evidence_map.get(issue_id, []))
+        coverage[issue_id] = count
+        if count == 0:
+            risk_flags.append(f"{issue_id}:근거없음")
+        elif count == 1:
+            risk_flags.append(f"{issue_id}:근거부족")
+
+    if not top_evidence:
+        risk_flags.append("global:검색근거없음")
+
+    return {
+        "strategy_context": {
+            "top_evidence": top_evidence,
+            "issue_evidence_map": issue_evidence_map,
+            "coverage": coverage,
+            "risk_flags": risk_flags,
+        }
+    }
+
+
 def _strategy_node(state: DataAnalysisState) -> DataAnalysisState:
     actions: list[RecommendedAction] = []
+    strategy_context = state.get("strategy_context", {})
+    issue_evidence_map = strategy_context.get("issue_evidence_map", {})
+    risk_flags = strategy_context.get("risk_flags", [])
+    band = state.get("success_probability", {}).get("band", "LOW")
+    risk_level = str(state.get("analysis_options", {}).get("risk_level", "BALANCED")).upper()
+
     for idx, gap in enumerate(state.get("gap_analysis", []), start=1):
+        issue_id = gap.get("issue_id", "ISSUE-1")
+        evidence = issue_evidence_map.get(issue_id, [])[:2]
+        evidence_hint = ""
+        if evidence:
+            refs = []
+            for ev in evidence:
+                doc_id = str(ev.get("doc_id", ""))
+                source = str(ev.get("source_type", "CASELAW"))
+                if not doc_id:
+                    continue
+                refs.append(doc_id if ":" in doc_id else f"{source}:{doc_id}")
+            if refs:
+                evidence_hint = f" 근거 참고({', '.join(refs)})."
+
+        priority = "high" if gap.get("impact") == "high" else "medium"
+        if f"{issue_id}:근거부족" in risk_flags:
+            priority = "high"
+
         actions.append(
             RecommendedAction(
                 action_id=f"ACTION-{idx}",
                 title="증빙 보강 및 사유별 반박 정리",
-                detail=f"{gap.get('missing_evidence', '')} 자료를 보강하고 쟁점별 반박 논리를 정리",
-                priority="high" if gap.get("impact") == "high" else "medium",
-                linked_issue_id=gap.get("issue_id", "ISSUE-1"),
+                detail=f"{gap.get('missing_evidence', '')} 자료를 보강하고 쟁점별 반박 논리를 정리.{evidence_hint}",
+                priority=priority,
+                linked_issue_id=issue_id,
             )
         )
 
-    band = state.get("success_probability", {}).get("band", "LOW")
-    if band != "HIGH":
+    if band == "HIGH":
         actions.append(
             RecommendedAction(
                 action_id=f"ACTION-{len(actions)+1}",
-                title="재심의 제출 전략 강화",
-                detail="핵심 쟁점별 1페이지 요약서를 첨부해 심사자의 판단 부담을 낮춤",
-                priority="medium",
+                title="재심의 제출 완성도 점검",
+                detail="제출 문서 완성도 및 첨부 누락 여부를 최종 점검 후 즉시 제출",
+                priority="medium" if risk_level != "AGGRESSIVE" else "high",
+                linked_issue_id="ISSUE-1",
+            )
+        )
+    elif band == "MEDIUM":
+        actions.append(
+            RecommendedAction(
+                action_id=f"ACTION-{len(actions)+1}",
+                title="쟁점별 반박서 + 추가 증빙 병행",
+                detail="핵심 쟁점별 1페이지 반박서 작성과 보강 증빙 제출을 병행",
+                priority="high" if risk_level in {"BALANCED", "AGGRESSIVE"} else "medium",
+                linked_issue_id="ISSUE-1",
+            )
+        )
+    else:
+        actions.append(
+            RecommendedAction(
+                action_id=f"ACTION-{len(actions)+1}",
+                title="사전 질의/정리 후 재심의",
+                detail="증빙 우선 보강 후 사전 질의로 쟁점을 정리하고 재심의 제출",
+                priority="high",
                 linked_issue_id="ISSUE-1",
             )
         )
@@ -370,10 +566,45 @@ def _strategy_node(state: DataAnalysisState) -> DataAnalysisState:
 
 
 def _package_evidence_node(state: DataAnalysisState) -> DataAnalysisState:
-    issue_id = "ISSUE-1"
     nodes = state.get("issue_tree", {}).get("nodes", [])
-    if nodes:
-        issue_id = str(nodes[0].get("issue_id", "ISSUE-1"))
+    issue_id = str(nodes[0].get("issue_id", "ISSUE-1")) if nodes else "ISSUE-1"
+
+    strategy_context = state.get("strategy_context", {})
+    top_evidence = strategy_context.get("top_evidence", [])
+
+    if top_evidence:
+        packaged: list[dict[str, Any]] = []
+        for item in top_evidence:
+            source_type = str(item.get("source_type", "CASELAW")).upper()
+            if source_type == "DISPUTE":
+                mapped_source = "dispute_case"
+            elif source_type == "WEB":
+                mapped_source = "web"
+            else:
+                mapped_source = "caselaw"
+            provenance = {
+                "source_type": mapped_source,
+                "source_id": str(item.get("doc_id", "")),
+                "title": str(item.get("title", "")),
+                "snippet": str(item.get("snippet", "")),
+                "retrieved_at": str(item.get("provenance", {}).get("retrieved_at", "")),
+                "metadata": {
+                    "url": item.get("url"),
+                    "index_name": item.get("provenance", {}).get("index_name", ""),
+                    "retrieval_method": item.get("provenance", {}).get("retrieval_method", ""),
+                },
+            }
+            packaged.append(
+                {
+                    "evidence_id": str(item.get("doc_id", "")),
+                    "issue_id": issue_id,
+                    "evidence_title": str(item.get("title", "")),
+                    "summary": str(item.get("snippet", "")),
+                    "relevance_score": float(item.get("rerank_score", item.get("score", 0.0)) or 0.0),
+                    "provenance": [provenance],
+                }
+            )
+        return {"evidence_pack": packaged}
 
     evidence = [ranked_case_to_evidence_item(doc, issue_id) for doc in state.get("ranked_cases", [])]
     return {"evidence_pack": evidence}
@@ -408,6 +639,7 @@ def build_graph() -> Any:
     graph.add_node("gap_analysis", _gap_analysis_node)
     graph.add_node("score_precedent", _score_precedent_node)
     graph.add_node("score_adjustment", _score_adjustment_node)
+    graph.add_node("build_strategy_context", _build_strategy_context_node)
     graph.add_node("strategy", _strategy_node)
     graph.add_node("package_evidence", _package_evidence_node)
     graph.add_node("finalize", _finalize_node)
@@ -419,15 +651,24 @@ def build_graph() -> Any:
     graph.add_edge("issue_analysis", "gap_analysis")
     graph.add_edge("gap_analysis", "score_precedent")
     graph.add_edge("score_precedent", "score_adjustment")
-    graph.add_edge("score_adjustment", "strategy")
+    graph.add_edge("score_adjustment", "build_strategy_context")
+    graph.add_edge("build_strategy_context", "strategy")
     graph.add_edge("strategy", "package_evidence")
     graph.add_edge("package_evidence", "finalize")
     graph.add_edge("finalize", END)
     return graph.compile()
 
 
-def run_pipeline(structured_case: StructuredCase | dict[str, Any]) -> AnalysisResult:
-    initial_state = DataAnalysisState(structured_case=normalize_structured_case(structured_case))
+def run_pipeline(
+    structured_case: StructuredCase | dict[str, Any],
+    rag_result: dict[str, Any] | None = None,
+    analysis_options: dict[str, Any] | None = None,
+) -> AnalysisResult:
+    initial_state = DataAnalysisState(
+        structured_case=normalize_structured_case(structured_case),
+        rag_result=rag_result or {},
+        analysis_options=analysis_options or {"risk_level": "BALANCED", "output_style": "USER_READABLE"},
+    )
     app = build_graph()
     result_state: DataAnalysisState = app.invoke(initial_state)
     return result_state["analysis_result"]

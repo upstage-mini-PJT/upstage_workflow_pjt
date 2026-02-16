@@ -16,6 +16,12 @@ from tools.data_analysis_tools.rag.reranker import (
     RerankError,
     rerank_retrieval_result,
 )
+from tools.data_analysis_tools.rag.search_client import (
+    MockWebSearchProvider,
+    WebSearchProvider,
+    normalize_web_results,
+    search_web_docs,
+)
 from tools.data_analysis_tools.rag.vector_retriever import RetrieveRequest, VectorRetriever
 
 __all__ = [
@@ -34,6 +40,10 @@ __all__ = [
     "RerankConfig",
     "RerankError",
     "rerank_retrieval_result",
+    "WebSearchProvider",
+    "MockWebSearchProvider",
+    "search_web_docs",
+    "normalize_web_results",
     "RetrieveRequest",
     "VectorRetriever",
 ]

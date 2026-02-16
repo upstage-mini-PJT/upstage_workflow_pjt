@@ -57,6 +57,7 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
 - `url`: 원문 링크
 - `meta`: 원천별 확장 필드
 - `published_at` 파싱 실패 정책: `1970-01-01`로 대체하고 `meta.published_at_parse_failed=true`, `meta.published_at_raw` 기록
+- WEB 결과는 `meta.publisher_domain`, `meta.publisher_grade(A~D)`를 저장
 
 ---
 

@@ -11,6 +11,7 @@ from tools.data_analysis_tools.rag.chunker import (
 )
 from tools.data_analysis_tools.rag.embedder import Embedder, HashingEmbedder, embed_chunks
 from tools.data_analysis_tools.rag.index_store import InMemoryVectorIndexStore, SearchResult
+from tools.data_analysis_tools.rag.vector_retriever import RetrieveRequest, VectorRetriever
 
 __all__ = [
     "IngestionNormalizationError",
@@ -25,4 +26,6 @@ __all__ = [
     "embed_chunks",
     "SearchResult",
     "InMemoryVectorIndexStore",
+    "RetrieveRequest",
+    "VectorRetriever",
 ]

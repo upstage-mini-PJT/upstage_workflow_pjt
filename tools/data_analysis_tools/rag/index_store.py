@@ -74,6 +74,9 @@ class InMemoryVectorIndexStore:
     def count(self) -> int:
         return len(self._chunks)
 
+    def count_filtered(self, filters: dict[str, Any] | None = None) -> int:
+        return len(self._apply_filters(filters))
+
     def _apply_filters(self, filters: dict[str, Any] | None) -> list[str]:
         if not filters:
             return list(self._chunks.keys())

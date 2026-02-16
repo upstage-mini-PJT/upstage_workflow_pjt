@@ -14,6 +14,8 @@ from core.schemas.analysis import (
     IssueTree,
     RecommendedAction,
     SuccessProbability,
+    ScoringTrace,
+    RAGRetrievalResult,
 )
 from core.schemas.case_context import StructuredCase, normalize_structured_case
 from core.scoring.features import extract_features
@@ -23,6 +25,19 @@ from tools.data_analysis_tools.caselaw.normalizer import normalize_cases
 from tools.data_analysis_tools.caselaw.query_builder import build_queries
 from tools.data_analysis_tools.caselaw.ranker import rank_cases
 from tools.data_analysis_tools.caselaw.types import CaseLawDoc, RankedCaseLawDoc, RetrievalQuery
+from tools.data_analysis_tools.rag import (
+    ChunkingConfig,
+    ComparativeScoringInput,
+    HashingEmbedder,
+    InMemoryVectorIndexStore,
+    RetrieveRequest,
+    VectorRetriever,
+    chunk_ingestion_docs,
+    compute_comparative_scoring,
+    embed_chunks,
+    normalize_ingestion_docs,
+    rerank_retrieval_result,
+)
 
 
 class DataAnalysisState(TypedDict, total=False):
@@ -31,6 +46,7 @@ class DataAnalysisState(TypedDict, total=False):
     raw_cases: list[dict[str, Any]]
     normalized_cases: list[CaseLawDoc]
     ranked_cases: list[RankedCaseLawDoc]
+    rag_result: RAGRetrievalResult
     issue_tree: IssueTree
     gap_analysis: list[GapAnalysisItem]
     recommended_actions: list[RecommendedAction]
@@ -39,6 +55,7 @@ class DataAnalysisState(TypedDict, total=False):
     case_adjustment: int
     adjustment_notes: list[str]
     success_probability: SuccessProbability
+    scoring_trace: ScoringTrace
     evidence_pack: list[dict[str, Any]]
     analysis_result: AnalysisResult
 
@@ -54,7 +71,49 @@ def _retrieve_node(state: DataAnalysisState) -> DataAnalysisState:
 def _normalize_rank_node(state: DataAnalysisState) -> DataAnalysisState:
     normalized = normalize_cases(state.get("raw_cases", []))
     ranked = rank_cases(normalized, state["structured_case"], top_k=6)
-    return {"normalized_cases": normalized, "ranked_cases": ranked}
+
+    merged_query = " | ".join([q.get("query", "") for q in state.get("queries", [])])
+    ingestion_inputs: list[dict[str, Any]] = []
+    for doc in ranked:
+        ingestion_inputs.append(
+            {
+                "source_type": doc.get("source_type", "CASELAW"),
+                "doc_id": doc.get("doc_id"),
+                "title": doc.get("title", ""),
+                "body": doc.get("summary") or doc.get("holding") or "",
+                "published_at": doc.get("published_at"),
+                "tags": doc.get("keywords", []),
+                "url": doc.get("url"),
+                "meta": {"result": doc.get("result", ""), "source": doc.get("source", "caselaw")},
+            }
+        )
+
+    ingestion_docs = normalize_ingestion_docs(ingestion_inputs)
+    embedder = HashingEmbedder(embedding_dim=256)
+    chunks = chunk_ingestion_docs(
+        ingestion_docs,
+        ChunkingConfig(
+            chunk_size_tokens=300,
+            chunk_overlap_tokens=60,
+            embedding_model=embedder.model_name,
+            embedding_dim=embedder.embedding_dim,
+        ),
+    )
+    vectors = embed_chunks(chunks, embedder)
+    index_store = InMemoryVectorIndexStore(index_name="step3_rag_index")
+    index_store.upsert(chunks, vectors)
+
+    retriever = VectorRetriever(index_store=index_store, embedder=embedder)
+    retrieved = retriever.retrieve(
+        RetrieveRequest(
+            query=merged_query or "보험금 부지급",
+            top_k=6,
+            query_id=f"Q-{state['structured_case'].get('case_id', 'unknown')}",
+            filters={},
+        )
+    )
+    rag_result = RAGRetrievalResult(**rerank_retrieval_result(retrieved))
+    return {"normalized_cases": normalized, "ranked_cases": ranked, "rag_result": rag_result}
 
 
 def _issue_analysis_node(state: DataAnalysisState) -> DataAnalysisState:
@@ -207,7 +266,7 @@ def _apply_adjustment_guardrails(
     cited_case_ids: list[str],
     ranked_cases: list[RankedCaseLawDoc],
     precedent_score: int,
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[str], list[str]]:
     notes: list[str] = []
 
     try:
@@ -243,7 +302,8 @@ def _apply_adjustment_guardrails(
         adjustment = 1
         notes.append("중저신뢰 1차 점수 보호: 양의 보정 +1로 제한")
 
-    return adjustment, notes
+    valid_cited = [cid for cid in cited_case_ids if cid in valid_ids]
+    return adjustment, notes, valid_cited
 
 
 def _score_to_band(score: int) -> str:
@@ -259,9 +319,9 @@ def _compute_case_adjustment(
     ranked_cases: list[RankedCaseLawDoc],
     precedent_score: int,
     features: dict[str, Any],
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[str], list[str]]:
     if not ranked_cases:
-        return 0, ["사례 기반 보정 미적용: 검색된 사례 없음"]
+        return 0, ["사례 기반 보정 미적용: 검색된 사례 없음"], []
 
     payload = {
         "case": {
@@ -291,28 +351,36 @@ def _compute_case_adjustment(
         raw_adjustment -= 10
         adjustment_notes.append("증빙 부족/미해결 쟁점 다수 반영: -10")
 
-    adjustment, notes = _apply_adjustment_guardrails(
+    adjustment, notes, cited_ids = _apply_adjustment_guardrails(
         raw_adjustment=raw_adjustment,
         rationale=str(raw.get("rationale", "")),
         cited_case_ids=[str(x) for x in raw.get("cited_case_ids", [])],
         ranked_cases=ranked_cases,
         precedent_score=precedent_score,
     )
-    return adjustment, adjustment_notes + notes
+    return adjustment, adjustment_notes + notes, cited_ids
 
 
 def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
     precedent = state.get("precedent_probability", SuccessProbability(score=0, band="LOW"))
     precedent_score = int(precedent.get("score", 0))
 
-    adjustment, notes = _compute_case_adjustment(
+    adjustment, notes, cited_ids = _compute_case_adjustment(
         state["structured_case"],
         state.get("ranked_cases", []),
         precedent_score,
         state.get("features", {}),
     )
 
-    total_score = max(0, min(100, precedent_score + adjustment))
+    scoring_trace = compute_comparative_scoring(
+        ComparativeScoringInput(
+            rag_result=state.get("rag_result", RAGRetrievalResult(query_id="Q-unknown", query="", filters={}, items=[], stats={"candidate_count": 0, "returned_count": 0, "latency_ms": 0})),
+            case_adjustment=adjustment,
+            rationale="; ".join(notes),
+            cited_case_ids=cited_ids,
+        )
+    )
+    total_score = int(scoring_trace.get("total_score", max(0, min(100, precedent_score + adjustment))))
     total_band = _score_to_band(total_score)
 
     positive_drivers = list(precedent.get("positive_drivers", []))
@@ -331,6 +399,7 @@ def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
     return {
         "case_adjustment": adjustment,
         "adjustment_notes": notes,
+        "scoring_trace": ScoringTrace(**scoring_trace),
         "success_probability": SuccessProbability(
             score=total_score,
             band=total_band,
@@ -395,6 +464,8 @@ def _finalize_node(state: DataAnalysisState) -> DataAnalysisState:
             ),
         ),
         evidence_pack=state.get("evidence_pack", []),
+        rag_result=state.get("rag_result", RAGRetrievalResult(query_id="Q-unknown", query="", filters={}, items=[], stats={"candidate_count": 0, "returned_count": 0, "latency_ms": 0})),
+        scoring_trace=state.get("scoring_trace", ScoringTrace(precedent_score=0, case_adjustment=0, total_score=0, guardrails_applied=["missing score trace"], cited_case_ids=[])),
     )
     return {"analysis_result": result}
 

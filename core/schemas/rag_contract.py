@@ -7,6 +7,25 @@ SourceType = Literal["CASELAW", "DISPUTE", "WEB"]
 RetrievalMethod = Literal["vector", "keyword", "hybrid"]
 RiskLevel = Literal["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]
 OutputStyle = Literal["USER_READABLE", "EXPERT_LIKE"]
+NodeType = Literal[
+    "ROOT",
+    "GROUP",
+    "DOCUMENT",
+    "CHUNK",
+    "ANALYSIS",
+    "STRATEGY",
+    "RESEARCH",
+    "SCORE_STEP",
+]
+
+
+class TreeNode(TypedDict, total=False):
+    node_id: str
+    node_type: NodeType
+    parent_id: str | None
+    title: str
+    payload: dict[str, Any]
+    children: list["TreeNode"]
 
 
 class IngestionDoc(TypedDict, total=False):
@@ -70,6 +89,7 @@ class RAGRetrievalResult(TypedDict, total=False):
     query: str
     filters: dict[str, Any]
     items: list[RAGItem]
+    tree: TreeNode
     stats: RetrievalStats
 
 
@@ -80,6 +100,7 @@ class AnalysisOptions(TypedDict, total=False):
 
 class ComparativeAnalysisInput(TypedDict, total=False):
     structured_case: dict[str, Any]
+    structured_case_tree: TreeNode
     rag_result: RAGRetrievalResult
     analysis_options: AnalysisOptions
 
@@ -89,6 +110,7 @@ class ScoringTrace(TypedDict, total=False):
     case_adjustment: int
     total_score: int
     guardrails_applied: list[str]
+    tree: TreeNode
 
 
 class ResearchPack(TypedDict, total=False):
@@ -98,6 +120,9 @@ class ResearchPack(TypedDict, total=False):
 
 class ComparativeAnalysisOutput(TypedDict, total=False):
     analysis_report: dict[str, Any]
+    analysis_tree: TreeNode
     strategy_plan: dict[str, Any]
+    strategy_tree: TreeNode
     research_pack: ResearchPack
+    research_tree: TreeNode
     scoring_trace: ScoringTrace

@@ -180,6 +180,8 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
       "precedent_score": 0,
       "case_adjustment": 0,
       "total_score": 0,
+      "cited_case_ids": ["string"],
+      "rationale": "string",
       "guardrails_applied": ["string"],
       "tree": "TreeNode"
     }

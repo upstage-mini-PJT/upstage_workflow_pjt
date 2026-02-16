@@ -110,6 +110,8 @@ class ScoringTrace(TypedDict, total=False):
     case_adjustment: int
     total_score: int
     guardrails_applied: list[str]
+    cited_case_ids: list[str]
+    rationale: str
     tree: TreeNode
 
 

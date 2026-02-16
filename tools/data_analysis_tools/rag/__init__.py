@@ -9,6 +9,10 @@ from tools.data_analysis_tools.rag.chunker import (
     chunk_ingestion_doc,
     chunk_ingestion_docs,
 )
+from tools.data_analysis_tools.rag.comparative_scoring import (
+    ComparativeScoringInput,
+    compute_comparative_scoring,
+)
 from tools.data_analysis_tools.rag.embedder import Embedder, HashingEmbedder, embed_chunks
 from tools.data_analysis_tools.rag.index_store import InMemoryVectorIndexStore, SearchResult
 from tools.data_analysis_tools.rag.reranker import (
@@ -32,6 +36,8 @@ __all__ = [
     "ChunkingError",
     "chunk_ingestion_doc",
     "chunk_ingestion_docs",
+    "ComparativeScoringInput",
+    "compute_comparative_scoring",
     "Embedder",
     "HashingEmbedder",
     "embed_chunks",

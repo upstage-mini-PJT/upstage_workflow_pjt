@@ -1,0 +1,103 @@
+from __future__ import annotations
+
+from typing import Any, Literal, TypedDict
+
+
+SourceType = Literal["CASELAW", "DISPUTE", "WEB"]
+RetrievalMethod = Literal["vector", "keyword", "hybrid"]
+RiskLevel = Literal["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]
+OutputStyle = Literal["USER_READABLE", "EXPERT_LIKE"]
+
+
+class IngestionDoc(TypedDict, total=False):
+    doc_id: str
+    source_type: SourceType
+    title: str
+    body: str
+    published_at: str
+    jurisdiction: str | None
+    tags: list[str]
+    url: str | None
+    meta: dict[str, Any]
+
+
+class VectorChunkMetadata(TypedDict, total=False):
+    title: str
+    published_at: str | None
+    url: str | None
+    tags: list[str]
+
+
+class VectorChunk(TypedDict, total=False):
+    chunk_id: str
+    doc_id: str
+    source_type: SourceType
+    chunk_text: str
+    chunk_index: int
+    embedding_model: str
+    embedding_dim: int
+    token_count: int
+    metadata: VectorChunkMetadata
+
+
+class RetrievalProvenance(TypedDict, total=False):
+    index_name: str
+    retrieved_at: str
+    retrieval_method: RetrievalMethod
+
+
+class RAGItem(TypedDict, total=False):
+    source_type: SourceType
+    doc_id: str
+    chunk_id: str
+    title: str
+    snippet: str
+    score: float
+    rerank_score: float
+    url: str | None
+    published_at: str | None
+    provenance: RetrievalProvenance
+
+
+class RetrievalStats(TypedDict, total=False):
+    candidate_count: int
+    returned_count: int
+    latency_ms: int
+
+
+class RAGRetrievalResult(TypedDict, total=False):
+    query_id: str
+    query: str
+    filters: dict[str, Any]
+    items: list[RAGItem]
+    stats: RetrievalStats
+
+
+class AnalysisOptions(TypedDict, total=False):
+    risk_level: RiskLevel
+    output_style: OutputStyle
+
+
+class ComparativeAnalysisInput(TypedDict, total=False):
+    structured_case: dict[str, Any]
+    rag_result: RAGRetrievalResult
+    analysis_options: AnalysisOptions
+
+
+class ScoringTrace(TypedDict, total=False):
+    precedent_score: int
+    case_adjustment: int
+    total_score: int
+    guardrails_applied: list[str]
+
+
+class ResearchPack(TypedDict, total=False):
+    caselaw_results: list[dict[str, Any]]
+    web_sources: list[dict[str, Any]]
+
+
+class ComparativeAnalysisOutput(TypedDict, total=False):
+    analysis_report: dict[str, Any]
+    strategy_plan: dict[str, Any]
+    research_pack: ResearchPack
+    scoring_trace: ScoringTrace

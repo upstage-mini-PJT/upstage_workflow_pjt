@@ -19,6 +19,8 @@ PROVENANCE_REQUIRED_FIELDS: Final[tuple[str, str, str]] = (
     "retrieved_at",
     "retrieval_method",
 )
+DEFAULT_CHUNK_SIZE_TOKENS: Final[int] = 300
+DEFAULT_CHUNK_OVERLAP_TOKENS: Final[int] = 60
 
 
 def make_doc_id(source_type: SourceType, raw_id: str) -> str:

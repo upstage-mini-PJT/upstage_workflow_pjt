@@ -92,6 +92,8 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
 - `embedding_dim`: 벡터 차원
 - `token_count`: 청크 토큰 수
 - `metadata`: 검색/출력에서 활용할 최소 메타
+- 청킹 기본값: `chunk_size_tokens=300`, `chunk_overlap_tokens=60` (슬라이딩 윈도우)
+- `token_count` 계산 정책: 공백 기준 단순 토큰 수
 
 ---
 

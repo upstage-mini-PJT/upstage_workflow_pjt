@@ -59,6 +59,7 @@ uv-cache/
 logs/
 **/logs/
 *.sqlite3
+*.db
 
 ########################################
 # FastAPI uploads / runtime data
@@ -70,6 +71,27 @@ storage/
 data/
 tmp/
 temp/
+
+########################################
+# Notebook / data artifacts
+########################################
+.ipynb_checkpoints/
+*.parquet
+*.feather
+*.pkl
+*.joblib
+*.h5
+*.npz
+
+########################################
+# RAG local indexes
+########################################
+chroma/
+chroma_db/
+vector_db/
+faiss_index/
+*.faiss
+*.index
 
 ########################################
 # Node / React

@@ -219,3 +219,20 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
 - `provenance` 필수 필드: `index_name`, `retrieved_at`, `retrieval_method`
 - `case_adjustment`: `-15 ~ +15`
 - `total_score`: `0 ~ 100`
+
+---
+
+## 9) 코드 매핑 표
+| 계약 항목 | 구현 파일 | 주요 함수/타입 |
+| --- | --- | --- |
+| `TreeNode`, `IngestionDoc`, `VectorChunk`, `RAGRetrievalResult`, `ComparativeAnalysisInput/Output` | `core/schemas/rag_contract.py` | `TreeNode`, `IngestionDoc`, `RAGRetrievalResult` |
+| ID/점수/청킹 규칙 | `core/schemas/rag_conventions.py` | `make_doc_id`, `make_chunk_id`, `clamp_*` |
+| Ingestion 정규화 | `tools/data_analysis_tools/rag/normalizer.py` | `normalize_ingestion_doc(s)` |
+| Chunk 생성 | `tools/data_analysis_tools/rag/chunker.py` | `ChunkingConfig`, `chunk_ingestion_doc(s)` |
+| Embedding | `tools/data_analysis_tools/rag/embedder.py` | `HashingEmbedder`, `embed_chunks` |
+| Vector Index | `tools/data_analysis_tools/rag/index_store.py` | `InMemoryVectorIndexStore.upsert/search/get_by_doc_id` |
+| Vector Retrieval | `tools/data_analysis_tools/rag/vector_retriever.py` | `VectorRetriever.retrieve` |
+| Rerank | `tools/data_analysis_tools/rag/reranker.py` | `rerank_retrieval_result` |
+| Web 정규화/중복제거 | `tools/data_analysis_tools/rag/search_client.py` | `search_web_docs`, `normalize_web_results` |
+| Comparative Scoring | `tools/data_analysis_tools/rag/comparative_scoring.py` | `compute_comparative_scoring` |
+| Pipeline 연동 | `agents/data_analysis_agent/pipeline.py` | `_normalize_rank_node`, `_score_adjustment_node` |

@@ -117,20 +117,49 @@ Step3는 3개의 JSON 출력을 생성합니다:
 ### 환경 설정
 
 ```bash
-# Python 3.9+ 필요
+# Python 3.11+ 권장
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 
-# 의존성 설치
-pip install -r requirements.txt
+# 의존성 설치 (pyproject.toml 기준)
+pip install -e .
 ```
 
 ### 실행
 
 ```bash
-# Step3 에이전트 실행
-python main.py --input structured_case.json --output analysis_result.json
+# 파이프라인 실행 예시 (langgraph 필요)
+python -c "from agents.data_analysis_agent.pipeline import run_pipeline; print(run_pipeline({}))"
 ```
+
+## 🔗 RAG v1 실행 순서
+
+1. Raw 문서를 `normalize_ingestion_doc(s)`로 `IngestionDoc`으로 정규화
+2. `chunk_ingestion_doc(s)`로 `VectorChunk` 생성
+3. `embed_chunks()`로 임베딩 생성
+4. `InMemoryVectorIndexStore.upsert()`로 인덱스 적재
+5. `VectorRetriever.retrieve()`로 `RAGRetrievalResult` 생성
+6. `rerank_retrieval_result()`로 재정렬 점수 적용
+7. `compute_comparative_scoring()`으로 `scoring_trace` 계산
+
+## 🧩 RAG 모듈 구조
+
+`tools/data_analysis_tools/rag/normalizer.py`  
+`tools/data_analysis_tools/rag/chunker.py`  
+`tools/data_analysis_tools/rag/embedder.py`  
+`tools/data_analysis_tools/rag/index_store.py`  
+`tools/data_analysis_tools/rag/vector_retriever.py`  
+`tools/data_analysis_tools/rag/reranker.py`  
+`tools/data_analysis_tools/rag/search_client.py`  
+`tools/data_analysis_tools/rag/comparative_scoring.py`
+
+## 🛠️ 운영 체크리스트
+
+- 임베딩 모델명 또는 차원(`embedding_dim`)이 바뀌면 기존 인덱스를 폐기하고 전량 재임베딩
+- `chunk_size_tokens`/`chunk_overlap_tokens` 변경 시 인덱스 재생성
+- `source_type`, `doc_id/chunk_id` 규칙 변경 시 기존 데이터 마이그레이션 계획 수립
+- 점수 가드레일(`-15~+15`, `0~100`) 변경 시 비교분석 회귀 테스트 재실행
+- 웹 소스 신뢰도(`publisher_grade`) 정책 변경 시 기존 WEB 문서 메타 재계산
 
 ## 📐 구현 단계
 
@@ -188,9 +217,10 @@ python main.py --input structured_case.json --output analysis_result.json
 
 ## 📖 문서
 
-- **`data_analysis.md`**: Step3 구현 가이드 (원본 요구사항)
-- **`IMPLEMENTATION_PLAN.md`**: 상세 구현 계획
-- **`PLAN_SUMMARY.md`**: 구현 플랜 요약 (빠른 참조용)
+- `RAG_SCHEMA_CONTRACT.md`: Step3 RAG 계약(노드 구조 포함)
+- `data_analysis.md`: Step3 구현 가이드 (원본 요구사항)
+- `IMPLEMENTATION_PLAN.md`: 상세 구현 계획
+- `PLAN_SUMMARY.md`: 구현 플랜 요약
 
 ## ✅ Definition of Done
 
@@ -208,5 +238,5 @@ Step3 구현 완료 기준:
 
 ---
 
-**Last Updated**: 2026-02-11  
-**Status**: Phase 1 완료, Phase 2 진행중
+**Last Updated**: 2026-02-16  
+**Status**: RAG v1 모듈/테스트 브랜치 진행중

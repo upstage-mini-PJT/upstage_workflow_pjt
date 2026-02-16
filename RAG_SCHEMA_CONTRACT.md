@@ -203,3 +203,13 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
 3. `score/rerank_score` 스케일
 4. `provenance` 최소 필드
 5. `scoring_trace` 필수 여부
+
+---
+
+## 8) 규칙 고정값 (v1)
+- `doc_id`: `{source_type}:{raw_id}`
+- `chunk_id`: `{doc_id}#c{chunk_index}`
+- `score`, `rerank_score`: `0.0 ~ 1.0`
+- `provenance` 필수 필드: `index_name`, `retrieved_at`, `retrieval_method`
+- `case_adjustment`: `-15 ~ +15`
+- `total_score`: `0 ~ 100`

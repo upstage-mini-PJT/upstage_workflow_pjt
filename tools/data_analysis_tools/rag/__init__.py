@@ -11,6 +11,11 @@ from tools.data_analysis_tools.rag.chunker import (
 )
 from tools.data_analysis_tools.rag.embedder import Embedder, HashingEmbedder, embed_chunks
 from tools.data_analysis_tools.rag.index_store import InMemoryVectorIndexStore, SearchResult
+from tools.data_analysis_tools.rag.reranker import (
+    RerankConfig,
+    RerankError,
+    rerank_retrieval_result,
+)
 from tools.data_analysis_tools.rag.vector_retriever import RetrieveRequest, VectorRetriever
 
 __all__ = [
@@ -26,6 +31,9 @@ __all__ = [
     "embed_chunks",
     "SearchResult",
     "InMemoryVectorIndexStore",
+    "RerankConfig",
+    "RerankError",
+    "rerank_retrieval_result",
     "RetrieveRequest",
     "VectorRetriever",
 ]

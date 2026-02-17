@@ -36,7 +36,6 @@ TEST_CASES = [
         "policy_date": "20200101",
         "insurance_type": "노후실손의료비 상해(갱신형)",
         "denial_statement": "피보험자가 입원 치료를 받았으나 공제금액 및 보상비율 기준에 따라 일부 금액이 지급되지 않았습니다.",
-        "expected": "입원당 공제금액 30만원, 급여 80% / 비급여 70% 보상비율"
     },
     {
         "id": 2,
@@ -44,7 +43,6 @@ TEST_CASES = [
         "policy_date": "20200101",
         "insurance_type": "노후실손의료비 상해(갱신형)",
         "denial_statement": "피보험자의 청구 건은 외모 개선을 목적으로 한 쌍꺼풀 수술로 판단되어 보험금 지급이 거절되었습니다.",
-        "expected": "외모개선 목적 수술은 보상 제외, 기능개선 목적은 예외적으로 보상 가능"
     },
     {
         "id": 3,
@@ -52,7 +50,6 @@ TEST_CASES = [
         "policy_date": "20200101",
         "insurance_type": "노후실손의료비 질병(갱신형)",
         "denial_statement": "보험기간 종료 이후에 발생한 치료비에 대해서는 보상이 불가하다는 이유로 보험금 지급이 거절되었습니다.",
-        "expected": "보험기간 종료일로부터 180일까지 계속 중인 치료 보상 가능"
     }
 ]
 
@@ -98,7 +95,6 @@ def evaluate_retrieval(test_case: dict, llm: ChatUpstage) -> dict:
 고객 정보:
 - 보험 종류: {test_case['insurance_type']}
 - 부지급 사유: {test_case['denial_statement']}
-기대되는 답변 방향: {test_case['expected']}
 
 검색된 문서들:
 {context}
@@ -160,7 +156,6 @@ def print_test_case(test_case: dict, result: dict):
     print(f"\n  Insurance Type : {test_case['insurance_type']}")
     print(f"  Policy Date    : {test_case['policy_date']}")
     print(f"  Denial         : {test_case['denial_statement']}")
-    print(f"  Expected       : {test_case['expected']}")
 
     print_section("Client Message Sent to Agent")
     print(f"  {result['client_message']}")

@@ -19,7 +19,7 @@ load_dotenv()
 # ============================================================================
 # Configuration
 # ============================================================================
-
+from collections import Counter
 UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "solar-embedding-1-large")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -91,6 +91,40 @@ def chunk_policy(file_path: str, policy_date: str, policy_title: str) -> list:
     return splits
 
 # ============================================================================
+# Duplication Check — run after embedding, checks reconstructed articles
+# ============================================================================
+
+def check_for_duplicate_articles(vectordb, policy_date: str):
+    from collections import defaultdict
+
+    data = vectordb.get(where={"policy_date": policy_date})
+    pair_to_chunk_ids = defaultdict(list)
+
+    for metadata in data['metadatas']:
+        section = metadata.get('Document Section')
+        article = metadata.get('Article')
+        chunk_id = metadata.get('chunk_id', '')
+        if section and article and chunk_id:
+            pair_to_chunk_ids[(section, article)].append(chunk_id)
+
+    duplicates_found = False
+    for (section, article), chunk_ids in sorted(pair_to_chunk_ids.items()):
+        indices = sorted(int(c.split('_')[1]) for c in chunk_ids)
+        gaps = [
+            (indices[i], indices[i+1])
+            for i in range(len(indices) - 1)
+            if indices[i+1] - indices[i] > 1
+        ]
+        if gaps:
+            duplicates_found = True
+            print(f"  ⚠️  NON-CONTIGUOUS: '{article}' | '{section}'")
+            print(f"     chunk indices: {indices}")
+            print(f"     gaps at: {gaps}")
+
+    if not duplicates_found:
+        print(f"  ✅ No duplicate articles detected for {policy_date}.")
+
+# ============================================================================
 # Main
 # ============================================================================
 
@@ -123,6 +157,9 @@ def main():
         splits = chunk_policy(file_path, policy_date, policy_title)
         vectordb.add_documents(splits)
         print(f"  Embedded {len(splits)} chunks for {policy_date}")
+
+        # Check for non-contiguous (section, article) pairs in this policy
+        check_for_duplicate_articles(vectordb, policy_date)
 
     print(f"\nDone. Total docs in DB: {vectordb._collection.count()}")
 

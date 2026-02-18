@@ -6,6 +6,10 @@ import os
 from pathlib import Path
 from typing import Any
 
+from tools.data_analysis_tools.caselaw.json_source_loader import (
+    load_fss_disputes,
+    load_precedent_cases,
+)
 from tools.data_analysis_tools.caselaw.kca_loader import load_normalized_kca_disputes
 from tools.data_analysis_tools.caselaw.types import RetrievalQuery
 
@@ -82,7 +86,7 @@ def retrieve_cases(queries: list[RetrievalQuery], limit: int = 20) -> list[dict[
     for query in queries:
         source = str(query.get("source", "CASELAW")).upper()
         if source == "CASELAW":
-            pool = MOCK_CASELAW
+            pool = _build_precedent_pool()
         else:
             pool = _build_dispute_pool()
         for doc in pool:
@@ -97,13 +101,48 @@ def retrieve_cases(queries: list[RetrievalQuery], limit: int = 20) -> list[dict[
 
 
 def _build_dispute_pool() -> list[dict[str, Any]]:
-    if not _is_kca_enabled():
-        return MOCK_DISPUTE_CASES
-    return MOCK_DISPUTE_CASES + _load_kca_disputes()
+    pool = list(MOCK_DISPUTE_CASES)
+
+    if _is_fss_enabled():
+        fss_rows = _load_fss_pool()
+        if fss_rows:
+            pool = fss_rows
+
+    if _is_kca_enabled():
+        pool = pool + _load_kca_disputes()
+
+    return pool
+
+
+def _build_precedent_pool() -> list[dict[str, Any]]:
+    if not _is_precedent_enabled():
+        return MOCK_CASELAW
+    rows = _load_precedent_pool()
+    if not rows:
+        return MOCK_CASELAW
+    return rows
+
+
+def _is_precedent_enabled() -> bool:
+    return os.getenv("RAG_INCLUDE_PRECEDENTS", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_fss_enabled() -> bool:
+    return os.getenv("RAG_INCLUDE_FSS", "true").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _is_kca_enabled() -> bool:
     return os.getenv("RAG_INCLUDE_KCA", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@lru_cache(maxsize=1)
+def _load_precedent_pool() -> list[dict[str, Any]]:
+    return load_precedent_cases()
+
+
+@lru_cache(maxsize=1)
+def _load_fss_pool() -> list[dict[str, Any]]:
+    return load_fss_disputes()
 
 
 @lru_cache(maxsize=1)

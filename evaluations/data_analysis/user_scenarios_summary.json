@@ -1,0 +1,14 @@
+{
+  "scenario_count": 10,
+  "score_min": 41,
+  "score_max": 46,
+  "score_mean": 43.4,
+  "band_distribution": {
+    "LOW": 0,
+    "MEDIUM": 10,
+    "HIGH": 0
+  },
+  "guardrail_distribution": {
+    "adjustment_invalidated_missing_rationale_or_citations": 8
+  }
+}

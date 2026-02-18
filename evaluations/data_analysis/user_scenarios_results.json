@@ -1,0 +1,148 @@
+[
+  {
+    "scenario_id": "S01",
+    "name": "입원 필요성 부인",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 44,
+    "success_band": "MEDIUM",
+    "precedent_score": 44,
+    "case_adjustment": 0,
+    "total_score": 44,
+    "guardrails": [
+      "adjustment_invalidated_missing_rationale_or_citations"
+    ]
+  },
+  {
+    "scenario_id": "S02",
+    "name": "면책조항 적용 다툼",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 46,
+    "success_band": "MEDIUM",
+    "precedent_score": 46,
+    "case_adjustment": 0,
+    "total_score": 46,
+    "guardrails": []
+  },
+  {
+    "scenario_id": "S03",
+    "name": "진단코드 단독 거절",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 45,
+    "success_band": "MEDIUM",
+    "precedent_score": 45,
+    "case_adjustment": 0,
+    "total_score": 45,
+    "guardrails": [
+      "adjustment_invalidated_missing_rationale_or_citations"
+    ]
+  },
+  {
+    "scenario_id": "S04",
+    "name": "서류 미비 거절",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 41,
+    "success_band": "MEDIUM",
+    "precedent_score": 41,
+    "case_adjustment": 0,
+    "total_score": 41,
+    "guardrails": [
+      "adjustment_invalidated_missing_rationale_or_citations"
+    ]
+  },
+  {
+    "scenario_id": "S05",
+    "name": "고지의무 위반 주장",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 44,
+    "success_band": "MEDIUM",
+    "precedent_score": 44,
+    "case_adjustment": 0,
+    "total_score": 44,
+    "guardrails": [
+      "adjustment_invalidated_missing_rationale_or_citations"
+    ]
+  },
+  {
+    "scenario_id": "S06",
+    "name": "자동차사고 후 후유장해",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 42,
+    "success_band": "MEDIUM",
+    "precedent_score": 42,
+    "case_adjustment": 0,
+    "total_score": 42,
+    "guardrails": [
+      "adjustment_invalidated_missing_rationale_or_citations"
+    ]
+  },
+  {
+    "scenario_id": "S07",
+    "name": "치료 기간 과다 주장",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 42,
+    "success_band": "MEDIUM",
+    "precedent_score": 42,
+    "case_adjustment": 0,
+    "total_score": 42,
+    "guardrails": [
+      "adjustment_invalidated_missing_rationale_or_citations"
+    ]
+  },
+  {
+    "scenario_id": "S08",
+    "name": "중복보상 주장",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 43,
+    "success_band": "MEDIUM",
+    "precedent_score": 43,
+    "case_adjustment": 0,
+    "total_score": 43,
+    "guardrails": [
+      "adjustment_invalidated_missing_rationale_or_citations"
+    ]
+  },
+  {
+    "scenario_id": "S09",
+    "name": "사고 인과관계 부인",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 43,
+    "success_band": "MEDIUM",
+    "precedent_score": 43,
+    "case_adjustment": 0,
+    "total_score": 43,
+    "guardrails": [
+      "adjustment_invalidated_missing_rationale_or_citations"
+    ]
+  },
+  {
+    "scenario_id": "S10",
+    "name": "약관 문언 모호성",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 44,
+    "success_band": "MEDIUM",
+    "precedent_score": 44,
+    "case_adjustment": 0,
+    "total_score": 44,
+    "guardrails": []
+  }
+]

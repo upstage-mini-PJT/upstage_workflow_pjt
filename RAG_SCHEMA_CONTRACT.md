@@ -182,6 +182,7 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
     "scoring_trace": {
       "precedent_score": 0,
       "case_adjustment": 0,
+      "case_adjustment_source": "llm|heuristic|zero",
       "total_score": 0,
       "cited_case_ids": ["string"],
       "rationale": "string",
@@ -200,9 +201,10 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
 
 ## 6) 운영 가드레일 권장
 - 사례 보정치(`case_adjustment`)는 `-15 ~ +15` 범위 제한
-- `rationale` 또는 `cited_case_ids` 없으면 보정 무효화
+- `cited_case_ids` 최소 1개 없으면 보정 무효화
 - `cited_case_ids`는 실제 검색 결과(`RAGRetrievalResult.items`)의 `doc_id/case_id`와 일치해야 함
 - 최종 점수는 `0~100` clamp
+- 보정 우선순위: `LLM -> heuristic fallback -> zero`
 
 ---
 

@@ -195,6 +195,28 @@ PYTHONPATH=. uv run python evaluations/data_analysis/run_hyde_mode_comparison.py
 - `evaluations/data_analysis/hyde_mode_comparison.json`
 - `evaluations/data_analysis/hyde_mode_comparison.md`
 
+## 🧮 2단계 점수 구조 (판례 1차 + 사례 2차)
+
+- 1차: `CASELAW`만 사용해 `precedent_score` 계산
+- 2차: `DISPUTE`만 사용해 `case_adjustment` 계산
+- 보정 우선순위:
+  - LLM 성공 시 LLM 보정
+  - LLM 실패 시 휴리스틱 fallback
+  - fallback 정책이 `zero`면 0점 보정
+
+```bash
+# 사례 보정 LLM 사용 여부
+export RAG_ENABLE_LLM_ADJUSTMENT=true
+
+# LLM 실패 시 fallback 정책: heuristic | zero
+export RAG_ADJUSTMENT_FALLBACK=heuristic
+```
+
+- 가드레일:
+  - `cited_case_ids` 최소 1개 필수
+  - cited id는 실제 DISPUTE 검색 결과 doc_id와 일치해야 반영
+  - 불일치/누락 시 보정 무효(0점)
+
 ## 🧪 테스트 실행
 
 ```bash

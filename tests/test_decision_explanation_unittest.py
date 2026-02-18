@@ -39,6 +39,8 @@ class DecisionExplanationNodeTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["decision_summary"]["policy_clauses"]), 1)
         self.assertIn("약관 근거", result["decision_explanation"])
         self.assertIn("[Section:", result["decision_explanation"])
+        self.assertIn("AI가 만든 참고용", result["decision_explanation"])
+        self.assertIn("최종 판단과 결정의 책임", result["decision_explanation"])
         self.assertNotIn("양찬우", result["decision_explanation"])
         self.assertNotIn("2024-NS-556677", result["decision_explanation"])
         self.assertNotIn("010-1234-5678", result["decision_explanation"])

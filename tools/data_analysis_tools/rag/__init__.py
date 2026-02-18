@@ -14,6 +14,11 @@ from tools.data_analysis_tools.rag.comparative_scoring import (
     compute_comparative_scoring,
 )
 from tools.data_analysis_tools.rag.embedder import Embedder, HashingEmbedder, embed_chunks
+from tools.data_analysis_tools.rag.hyde import (
+    HyDEConfig,
+    HyDEGenerator,
+    generate_hypothetical_doc,
+)
 from tools.data_analysis_tools.rag.index_store import (
     ChromaVectorIndexStore,
     InMemoryVectorIndexStore,
@@ -46,6 +51,9 @@ __all__ = [
     "Embedder",
     "HashingEmbedder",
     "embed_chunks",
+    "HyDEGenerator",
+    "HyDEConfig",
+    "generate_hypothetical_doc",
     "SearchResult",
     "VectorIndexStore",
     "InMemoryVectorIndexStore",

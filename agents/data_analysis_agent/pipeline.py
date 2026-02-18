@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, TypedDict, cast
 
 from langgraph.graph import END, START, StateGraph
 import yaml
@@ -18,6 +18,7 @@ from core.schemas.analysis import (
     ScoringTrace,
     RAGRetrievalResult,
 )
+from core.schemas.rag_contract import RetrievalMode
 from core.schemas.case_context import StructuredCase, normalize_structured_case
 from core.scoring.features import extract_features
 from core.scoring.rubric import score_success
@@ -44,6 +45,7 @@ from tools.data_analysis_tools.rag import (
 
 class DataAnalysisState(TypedDict, total=False):
     structured_case: StructuredCase
+    retrieval_mode: RetrievalMode
     queries: list[RetrievalQuery]
     raw_cases: list[dict[str, Any]]
     normalized_cases: list[CaseLawDoc]
@@ -112,6 +114,8 @@ def _normalize_rank_node(state: DataAnalysisState) -> DataAnalysisState:
             top_k=6,
             query_id=f"Q-{state['structured_case'].get('case_id', 'unknown')}",
             filters={},
+            retrieval_mode=state.get("retrieval_mode", "plain"),
+            structured_case=state.get("structured_case", {}),
         )
     )
     rag_result = RAGRetrievalResult(**rerank_retrieval_result(retrieved))
@@ -512,8 +516,21 @@ def build_graph() -> Any:
     return graph.compile()
 
 
-def run_pipeline(structured_case: StructuredCase | dict[str, Any]) -> AnalysisResult:
-    initial_state = DataAnalysisState(structured_case=normalize_structured_case(structured_case))
+def _resolve_retrieval_mode(mode: str | None) -> RetrievalMode:
+    raw = (mode or os.getenv("RAG_RETRIEVAL_MODE", "plain")).strip().lower()
+    if raw in {"plain", "hyde", "reverse_hyde", "hybrid_hyde"}:
+        return cast(RetrievalMode, raw)
+    return "plain"
+
+
+def run_pipeline(
+    structured_case: StructuredCase | dict[str, Any],
+    retrieval_mode: RetrievalMode | None = None,
+) -> AnalysisResult:
+    initial_state = DataAnalysisState(
+        structured_case=normalize_structured_case(structured_case),
+        retrieval_mode=_resolve_retrieval_mode(retrieval_mode),
+    )
     app = build_graph()
     result_state: DataAnalysisState = app.invoke(initial_state)
     return result_state["analysis_result"]

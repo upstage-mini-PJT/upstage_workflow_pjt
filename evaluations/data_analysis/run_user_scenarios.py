@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from agents.data_analysis_agent.pipeline import run_pipeline
@@ -9,6 +10,7 @@ from evaluations.data_analysis.user_scenarios import USER_SCENARIOS
 
 def main() -> None:
     rows: list[dict[str, object]] = []
+    retrieval_mode = os.getenv("RAG_RETRIEVAL_MODE", "plain")
 
     for scenario in USER_SCENARIOS:
         scenario_id = str(scenario["scenario_id"])
@@ -24,6 +26,7 @@ def main() -> None:
         row = {
             "scenario_id": scenario_id,
             "name": name,
+            "retrieval_mode": retrieval_mode,
             "rag_items": len(rag.get("items", [])),
             "candidate_count": rag.get("stats", {}).get("candidate_count", 0),
             "returned_count": rag.get("stats", {}).get("returned_count", 0),

@@ -14,6 +14,7 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+nul
 
 ########################################
 # Python (uv / FastAPI)
@@ -67,7 +68,12 @@ logs/
 uploads/
 **/uploads/
 storage/
-data/
+# Exclude chroma vector databases
+chroma_*/
+# Exclude data EXCEPT policy markdown files
+data/*
+!data/policies/
+!data/policies/*.md
 tmp/
 temp/
 

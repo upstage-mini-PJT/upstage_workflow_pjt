@@ -251,3 +251,20 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
 - 운영 주의:
   - Python 3.14 환경에서는 Chroma 의존성 이슈가 발생할 수 있어 Python 3.13 권장
   - `embedding_model`, `embedding_dim`, 청킹 정책이 바뀌면 인덱스 재생성 및 재임베딩 수행
+
+---
+
+## 11) HyDE 운영 메모
+- Retrieval mode:
+  - `plain`: 원문 쿼리만 사용
+  - `hyde`: 가설 문서 생성 후 검색
+  - `reverse_hyde`: 1차 검색 결과 기반 재질의 생성 후 검색
+  - `hybrid_hyde`: `plain + hyde + reverse_hyde` 융합 검색
+- 환경변수:
+  - `RAG_RETRIEVAL_MODE=plain|hyde|reverse_hyde|hybrid_hyde`
+  - `RAG_ENABLE_HYDE=true|false`
+- 개인정보 최소화:
+  - HyDE 생성 텍스트는 이메일/전화번호/주민번호/장문 숫자 패턴을 마스킹
+- 실험 리포트:
+  - `evaluations/data_analysis/run_hyde_mode_comparison.py`
+  - 출력: `hyde_mode_comparison.json`, `hyde_mode_comparison.md`

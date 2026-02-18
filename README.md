@@ -153,6 +153,31 @@ export RAG_INDEX_NAME=step3_rag_index
 - 기본값은 `inmemory`
 - Chroma 실행 시 Python 3.14는 비호환 이슈가 있어 3.13 권장
 
+## 🧠 HyDE / Reverse HyDE 설정
+
+```bash
+# 검색 모드: plain | hyde | reverse_hyde | hybrid_hyde
+export RAG_RETRIEVAL_MODE=hybrid_hyde
+
+# HyDE 생성 on/off (민감정보 마스킹 포함)
+export RAG_ENABLE_HYDE=true
+```
+
+- `plain`: 원문 쿼리만 사용
+- `hyde`: 가설 문서(질문 확장) 기반 검색
+- `reverse_hyde`: 1차 검색 결과를 바탕으로 재질의 생성 후 검색
+- `hybrid_hyde`: `plain + hyde + reverse_hyde` 융합
+
+모드 비교 리포트 생성:
+
+```bash
+PYTHONPATH=. uv run python evaluations/data_analysis/run_hyde_mode_comparison.py
+```
+
+생성 파일:
+- `evaluations/data_analysis/hyde_mode_comparison.json`
+- `evaluations/data_analysis/hyde_mode_comparison.md`
+
 ## 🧪 테스트 실행
 
 ```bash

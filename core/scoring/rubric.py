@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypedDict
 
 import yaml
 
-from core.schemas.analysis import SuccessProbability
+
+class ScoreEstimate(TypedDict, total=False):
+    score: int
+    band: Literal["LOW", "MEDIUM", "HIGH"]
+    positive_drivers: list[str]
+    negative_drivers: list[str]
+    assumptions: list[str]
 
 
 DEFAULT_RUBRIC: dict[str, Any] = {
@@ -65,9 +71,8 @@ def _score_to_band(score: int, bands: dict[str, Any]) -> Literal["LOW", "MEDIUM"
     for name, config in bands.items():
         mn = int(config.get("min", 0))
         mx = int(config.get("max", 100))
-        if mn <= score <= mx:
-            if name in {"LOW", "MEDIUM", "HIGH"}:
-                return name
+        if mn <= score <= mx and name in {"LOW", "MEDIUM", "HIGH"}:
+            return name
     if score <= 39:
         return "LOW"
     if score <= 69:
@@ -75,7 +80,7 @@ def _score_to_band(score: int, bands: dict[str, Any]) -> Literal["LOW", "MEDIUM"
     return "HIGH"
 
 
-def score_success(features: dict[str, Any], rubric_path: str | None = None) -> SuccessProbability:
+def score_success(features: dict[str, Any], rubric_path: str | None = None) -> ScoreEstimate:
     rubric = _load_rubric(rubric_path)
     score = int(rubric.get("base_score", 45))
 
@@ -100,7 +105,7 @@ def score_success(features: dict[str, Any], rubric_path: str | None = None) -> S
     score = max(0, min(100, score))
     band = _score_to_band(score, rubric.get("bands", {}))
 
-    return SuccessProbability(
+    return ScoreEstimate(
         score=score,
         band=band,
         positive_drivers=positive_drivers,

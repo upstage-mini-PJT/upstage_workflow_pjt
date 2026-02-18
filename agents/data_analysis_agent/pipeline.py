@@ -17,7 +17,7 @@ from core.schemas.analysis import (
 )
 from core.schemas.case_context import StructuredCase, normalize_structured_case
 from core.scoring.features import extract_features
-from core.scoring.rubric import score_success
+from core.scoring.rubric import ScoreEstimate, score_success
 from tools.data_analysis_tools.caselaw.client import retrieve_cases
 from tools.data_analysis_tools.caselaw.normalizer import normalize_cases
 from tools.data_analysis_tools.caselaw.query_builder import build_queries
@@ -37,11 +37,12 @@ class DataAnalysisState(TypedDict, total=False):
     gap_analysis: list[GapAnalysisItem]
     recommended_actions: list[RecommendedAction]
     features: dict[str, Any]
-    precedent_probability: SuccessProbability
+    precedent_probability: ScoreEstimate
     case_adjustment: int
     adjustment_notes: list[str]
-    success_probability: SuccessProbability
+    internal_scoring: dict[str, Any]
     scoring_trace: dict[str, Any]
+    success_probability_public: SuccessProbability
     strategy_context: dict[str, Any]
     evidence_pack: list[dict[str, Any]]
     analysis_result: AnalysisResult
@@ -211,7 +212,7 @@ def _apply_adjustment_guardrails(
     cited_case_ids: list[str],
     ranked_cases: list[RankedCaseLawDoc],
     precedent_score: int,
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[str], list[str]]:
     notes: list[str] = []
 
     try:
@@ -226,7 +227,8 @@ def _apply_adjustment_guardrails(
         adjustment = 0
         notes.append("사례 보정치 무효화: rationale 부족")
 
-    if not cited_case_ids or any(cid not in valid_ids for cid in cited_case_ids):
+    valid_cited_ids = [cid for cid in cited_case_ids if cid in valid_ids]
+    if not valid_cited_ids:
         adjustment = 0
         notes.append("사례 보정치 무효화: 유효 provenance 부재")
 
@@ -247,7 +249,7 @@ def _apply_adjustment_guardrails(
         adjustment = 1
         notes.append("중저신뢰 1차 점수 보호: 양의 보정 +1로 제한")
 
-    return adjustment, notes
+    return adjustment, notes, valid_cited_ids
 
 
 def _score_to_band(score: int) -> str:
@@ -263,9 +265,9 @@ def _compute_case_adjustment(
     ranked_cases: list[RankedCaseLawDoc],
     precedent_score: int,
     features: dict[str, Any],
-) -> tuple[int, list[str]]:
+) -> tuple[int, list[str], list[str]]:
     if not ranked_cases:
-        return 0, ["사례 기반 보정 미적용: 검색된 사례 없음"]
+        return 0, ["사례 기반 보정 미적용: 검색된 사례 없음"], []
 
     payload = {
         "case": {
@@ -295,62 +297,76 @@ def _compute_case_adjustment(
         raw_adjustment -= 10
         adjustment_notes.append("증빙 부족/미해결 쟁점 다수 반영: -10")
 
-    adjustment, notes = _apply_adjustment_guardrails(
+    adjustment, notes, valid_cited_ids = _apply_adjustment_guardrails(
         raw_adjustment=raw_adjustment,
         rationale=str(raw.get("rationale", "")),
         cited_case_ids=[str(x) for x in raw.get("cited_case_ids", [])],
         ranked_cases=ranked_cases,
         precedent_score=precedent_score,
     )
-    return adjustment, adjustment_notes + notes
+    return adjustment, adjustment_notes + notes, valid_cited_ids
 
 
 def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
-    precedent = state.get("precedent_probability", SuccessProbability(score=0, band="LOW"))
+    precedent = state.get("precedent_probability", ScoreEstimate(score=0, band="LOW"))
     precedent_score = int(precedent.get("score", 0))
 
-    adjustment, notes = _compute_case_adjustment(
+    adjustment, notes, valid_cited_ids = _compute_case_adjustment(
         state["structured_case"],
         state.get("ranked_cases", []),
         precedent_score,
         state.get("features", {}),
     )
 
-    total_score = max(0, min(100, precedent_score + adjustment))
-    total_band = _score_to_band(total_score)
-
-    positive_drivers = list(precedent.get("positive_drivers", []))
-    negative_drivers = list(precedent.get("negative_drivers", []))
-    if adjustment > 0:
-        positive_drivers.append(f"사례 기반 보정 +{adjustment}점")
-    elif adjustment < 0:
-        negative_drivers.append(f"사례 기반 보정 {adjustment}점")
-
-    assumptions = list(precedent.get("assumptions", [])) + notes + [
-        f"precedent_score={precedent_score}",
-        f"case_adjustment={adjustment}",
-        f"total_score={total_score}",
-    ]
-
-    scoring_trace = {
-        "precedent_score": precedent_score,
-        "case_adjustment": adjustment,
-        "total_score": total_score,
-        "guardrails_applied": notes,
-        "cited_case_ids": [],
-    }
-
     return {
         "case_adjustment": adjustment,
         "adjustment_notes": notes,
-        "scoring_trace": scoring_trace,
-        "success_probability": SuccessProbability(
-            score=total_score,
-            band=total_band,
+        "internal_scoring": {
+            "precedent_score": precedent_score,
+            "case_adjustment": adjustment,
+            "total_score": max(0, min(100, precedent_score + adjustment)),
+        },
+        "scoring_trace": {
+            "precedent_score": precedent_score,
+            "case_adjustment": adjustment,
+            "total_score": max(0, min(100, precedent_score + adjustment)),
+            "guardrails_applied": notes,
+            "cited_case_ids": valid_cited_ids,
+        },
+    }
+
+
+def _estimate_success_probability_node(state: DataAnalysisState) -> DataAnalysisState:
+    precedent = state.get("precedent_probability", ScoreEstimate(score=0, band="LOW", positive_drivers=[], negative_drivers=[], assumptions=[]))
+    internal_scoring = state.get("internal_scoring", {})
+
+    precedent_score = int(internal_scoring.get("precedent_score", precedent.get("score", 0) or 0))
+    case_adjustment = int(internal_scoring.get("case_adjustment", state.get("case_adjustment", 0) or 0))
+    total_score = int(internal_scoring.get("total_score", max(0, min(100, precedent_score + case_adjustment))))
+    band = _score_to_band(total_score)
+
+    positive_drivers = list(precedent.get("positive_drivers", []))
+    negative_drivers = list(precedent.get("negative_drivers", []))
+    if case_adjustment > 0:
+        positive_drivers.append(f"사례 기반 보정 +{case_adjustment}점")
+    elif case_adjustment < 0:
+        negative_drivers.append(f"사례 기반 보정 {case_adjustment}점")
+
+    assumptions = list(precedent.get("assumptions", [])) + list(state.get("adjustment_notes", []))
+
+    return {
+        "success_probability_public": SuccessProbability(
+            band=band,
             positive_drivers=positive_drivers,
             negative_drivers=negative_drivers,
             assumptions=assumptions,
         ),
+        "scoring_trace": {
+            **state.get("scoring_trace", {}),
+            "precedent_score": precedent_score,
+            "case_adjustment": case_adjustment,
+            "total_score": total_score,
+        },
     }
 
 
@@ -499,7 +515,7 @@ def _strategy_node(state: DataAnalysisState) -> DataAnalysisState:
     strategy_context = state.get("strategy_context", {})
     issue_evidence_map = strategy_context.get("issue_evidence_map", {})
     risk_flags = strategy_context.get("risk_flags", [])
-    band = state.get("success_probability", {}).get("band", "LOW")
+    band = state.get("success_probability_public", {}).get("band", "LOW")
     risk_level = str(state.get("analysis_options", {}).get("risk_level", "BALANCED")).upper()
 
     for idx, gap in enumerate(state.get("gap_analysis", []), start=1):
@@ -616,9 +632,8 @@ def _finalize_node(state: DataAnalysisState) -> DataAnalysisState:
         gap_analysis=state.get("gap_analysis", []),
         recommended_actions=state.get("recommended_actions", []),
         success_probability=state.get(
-            "success_probability",
+            "success_probability_public",
             SuccessProbability(
-                score=0,
                 band="LOW",
                 positive_drivers=[],
                 negative_drivers=[],
@@ -639,6 +654,7 @@ def build_graph() -> Any:
     graph.add_node("gap_analysis", _gap_analysis_node)
     graph.add_node("score_precedent", _score_precedent_node)
     graph.add_node("score_adjustment", _score_adjustment_node)
+    graph.add_node("estimate_success_probability", _estimate_success_probability_node)
     graph.add_node("build_strategy_context", _build_strategy_context_node)
     graph.add_node("strategy", _strategy_node)
     graph.add_node("package_evidence", _package_evidence_node)
@@ -651,7 +667,8 @@ def build_graph() -> Any:
     graph.add_edge("issue_analysis", "gap_analysis")
     graph.add_edge("gap_analysis", "score_precedent")
     graph.add_edge("score_precedent", "score_adjustment")
-    graph.add_edge("score_adjustment", "build_strategy_context")
+    graph.add_edge("score_adjustment", "estimate_success_probability")
+    graph.add_edge("estimate_success_probability", "build_strategy_context")
     graph.add_edge("build_strategy_context", "strategy")
     graph.add_edge("strategy", "package_evidence")
     graph.add_edge("package_evidence", "finalize")

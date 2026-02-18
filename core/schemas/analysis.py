@@ -34,7 +34,6 @@ class RecommendedAction(TypedDict, total=False):
 
 
 class SuccessProbability(TypedDict, total=False):
-    score: int
     band: Literal["LOW", "MEDIUM", "HIGH"]
     positive_drivers: list[str]
     negative_drivers: list[str]

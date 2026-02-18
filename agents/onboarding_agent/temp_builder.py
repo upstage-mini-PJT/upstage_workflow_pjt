@@ -92,11 +92,6 @@ def _parse_args() -> argparse.Namespace:
         default=os.getenv("ONBOARDING_JOIN_DATE", "").strip(),
         help="보험 가입일(YYYYMMDD). 예: 20250301",
     )
-    parser.add_argument(
-        "--policy-date",
-        default=os.getenv("ONBOARDING_POLICY_DATE", "").strip(),
-        help="약관 버전 직접 지정(YYYYMMDD). 지정 시 join-date 매핑보다 우선",
-    )
     return parser.parse_args()
 
 
@@ -109,11 +104,11 @@ def _validate_yyyymmdd(value: str, *, label: str) -> str:
 
 def _select_policy_date(join_date: str, available_dates: list[str]) -> tuple[str, str]:
     if not available_dates:
-        return join_date, "vector DB에서 policy_date 목록을 찾지 못해 가입일을 그대로 사용"
+        raise SystemExit("vector DB에 policy_date가 없어 가입일 기반 매핑을 수행할 수 없습니다.")
 
     sorted_dates = sorted({d for d in available_dates if len(d) == 8 and d.isdigit()})
     if not sorted_dates:
-        return join_date, "vector DB의 policy_date 형식이 유효하지 않아 가입일을 그대로 사용"
+        raise SystemExit("vector DB의 policy_date 형식이 유효하지 않아 가입일 기반 매핑을 수행할 수 없습니다.")
 
     if join_date in sorted_dates:
         return join_date, "가입일과 동일한 policy_date가 존재하여 그대로 사용"
@@ -145,7 +140,6 @@ if __name__ == "__main__":
     if not Path(valid_file_path).exists():
         raise SystemExit(f"입력 파일이 존재하지 않습니다: {valid_file_path}")
 
-    requested_policy_date = str(args.policy_date or "").strip()
     join_date = str(args.join_date or "").strip()
 
     # [Step 2: 벡터 DB 준비 (콜드 스타트 시 1회 인덱싱)]
@@ -161,25 +155,18 @@ if __name__ == "__main__":
         print(f"--- ⚠️ Vector DB cold-start skipped: {exc} ---")
 
     # [Step 3: 가입일 기준 policy_date 선택]
-    if requested_policy_date:
-        selected_policy_date = _validate_yyyymmdd(
-            requested_policy_date,
-            label="--policy-date / ONBOARDING_POLICY_DATE",
+    if not join_date:
+        raise SystemExit(
+            "가입일이 필요합니다. --join-date 또는 ONBOARDING_JOIN_DATE를 설정하세요."
         )
-        selection_reason = "직접 지정한 policy_date를 사용"
-    else:
-        if not join_date:
-            raise SystemExit(
-                "가입일이 필요합니다. --join-date 또는 ONBOARDING_JOIN_DATE를 설정하세요."
-            )
-        normalized_join_date = _validate_yyyymmdd(
-            join_date,
-            label="--join-date / ONBOARDING_JOIN_DATE",
-        )
-        selected_policy_date, selection_reason = _select_policy_date(
-            normalized_join_date,
-            available_policy_dates,
-        )
+    normalized_join_date = _validate_yyyymmdd(
+        join_date,
+        label="--join-date / ONBOARDING_JOIN_DATE",
+    )
+    selected_policy_date, selection_reason = _select_policy_date(
+        normalized_join_date,
+        available_policy_dates,
+    )
     print(f"--- 🧭 Selected policy_date: {selected_policy_date} ({selection_reason}) ---")
 
     # [Step 4: 설정 준비]

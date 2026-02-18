@@ -6,6 +6,7 @@ onboarding_agent용 그래프 노드 정의.
 """
 
 from typing import Any
+import re
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
@@ -585,6 +586,195 @@ def _build_sufficiency_prompt(plan: str, required_documents: list, extracted_inf
 """
 
 
+def _mask_name(value: str) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return text
+
+    def _mask_token(token: str) -> str:
+        token = token.strip()
+        if not token:
+            return token
+        if re.fullmatch(r"[가-힣]{2,4}", token):
+            return token[0] + ("*" * (len(token) - 1))
+        if re.fullmatch(r"[A-Za-z][A-Za-z'.-]{1,}", token):
+            return token[0] + ("*" * (len(token) - 1))
+        return token
+
+    parts = re.split(r"(\s+)", text)
+    return "".join(_mask_token(part) if idx % 2 == 0 else part for idx, part in enumerate(parts))
+
+
+def _mask_digits_keep_tail(text: str, *, keep_tail: int = 2) -> str:
+    chars = list(str(text or ""))
+    digit_positions = [idx for idx, ch in enumerate(chars) if ch.isdigit()]
+    if not digit_positions:
+        return "".join(chars)
+    if keep_tail <= 0:
+        keep_set: set[int] = set()
+    else:
+        keep_set = set(digit_positions[-keep_tail:])
+    for idx in digit_positions:
+        if idx not in keep_set:
+            chars[idx] = "*"
+    return "".join(chars)
+
+
+def _mask_birth_date(value: str) -> str:
+    text = str(value or "")
+    text = re.sub(r"\b(\d{4})[-./](\d{2})[-./](\d{2})\b", r"\1-**-**", text)
+    text = re.sub(r"\b(\d{4})(\d{2})(\d{2})\b", r"\1****", text)
+    return text
+
+
+def _mask_email_in_text(text: str) -> str:
+    def _repl(match: re.Match[str]) -> str:
+        local = match.group("local")
+        domain = match.group("domain")
+        masked_local = local[0] + ("*" * max(len(local) - 1, 1))
+        domain_parts = domain.split(".")
+        if domain_parts:
+            head = domain_parts[0]
+            domain_parts[0] = head[0] + ("*" * max(len(head) - 1, 1)) if head else "***"
+        return f"{masked_local}@{'.'.join(domain_parts)}"
+
+    return re.sub(
+        r"(?P<local>[A-Za-z0-9._%+-]+)@(?P<domain>[A-Za-z0-9.-]+\.[A-Za-z]{2,})",
+        _repl,
+        str(text or ""),
+    )
+
+
+def _mask_phone_in_text(text: str) -> str:
+    def _repl(match: re.Match[str]) -> str:
+        return f"{match.group(1)}-****-**{match.group(3)[-2:]}"
+
+    return re.sub(r"\b(01[0-9]|0[2-9][0-9]?)-?(\d{3,4})-?(\d{4})\b", _repl, str(text or ""))
+
+
+def _mask_pii_text(text: str) -> str:
+    masked = str(text or "")
+    if not masked:
+        return masked
+
+    # Label-aware masking first.
+    label_pattern = re.compile(
+        r"(?P<label>"
+        r"(?:수신|성명|이름|환자명|피보험자|계약자|수익자|작성자|대상자|생년월일|주민등록번호|"
+        r"계약번호|증권번호|전화번호|휴대전화|연락처|이메일|주소|계좌번호)\s*[:：]\s*)"
+        r"(?P<value>[^\n]+)"
+    )
+
+    def _label_repl(match: re.Match[str]) -> str:
+        label = match.group("label")
+        value = match.group("value").strip()
+        normalized_label = label.replace(" ", "")
+        if any(key in normalized_label for key in ("성명", "이름", "환자명", "피보험자", "계약자", "수익자", "작성자", "대상자", "수신")):
+            masked_value = _mask_name(value)
+        elif "생년월일" in normalized_label:
+            masked_value = _mask_birth_date(value)
+        elif "주민등록번호" in normalized_label:
+            masked_value = re.sub(r"(\d{6})[- ]?(\d{7})", r"\1-*******", value)
+        elif any(key in normalized_label for key in ("전화번호", "휴대전화", "연락처")):
+            masked_value = _mask_phone_in_text(value)
+        elif "이메일" in normalized_label:
+            masked_value = _mask_email_in_text(value)
+        elif any(key in normalized_label for key in ("계약번호", "증권번호", "계좌번호")):
+            masked_value = _mask_digits_keep_tail(value, keep_tail=2)
+        elif "주소" in normalized_label:
+            core = value[:6]
+            masked_value = f"{core}***" if value else value
+        else:
+            masked_value = value
+        return f"{label}{masked_value}"
+
+    masked = label_pattern.sub(_label_repl, masked)
+
+    # Unlabeled patterns.
+    masked = re.sub(r"\b(\d{6})[- ]?([1-4]\d{6})\b", r"\1-*******", masked)
+    masked = _mask_phone_in_text(masked)
+    masked = _mask_email_in_text(masked)
+    masked = re.sub(r"\b([가-힣]{2,4})(?=\s*고객님\b)", lambda m: _mask_name(m.group(1)), masked)
+    return masked
+
+
+def _compose_user_friendly_explanation(
+    *,
+    user_situation: str,
+    insurer_claim: str,
+    conclusion_reason: str,
+    policy_clauses: list[dict],
+    document_evidence: list[dict],
+    llm_plain_explanation: str = "",
+) -> str:
+    lines: list[str] = []
+    lines.append("1) 현재 상황")
+    lines.append(f"- {user_situation or '(요약 정보 없음)'}")
+
+    lines.append("2) 보험사 판단")
+    lines.append(f"- {insurer_claim or '(보험사 주장 정보 없음)'}")
+
+    lines.append("3) 약관 근거")
+    if policy_clauses:
+        for idx, clause in enumerate(policy_clauses[:3], start=1):
+            title = str(clause.get("title", "")).strip() or "(조항 제목 없음)"
+            snippet = str(clause.get("snippet", "")).strip() or "(요약 없음)"
+            lines.append(f"- [{idx}] {title}: {snippet}")
+    else:
+        lines.append("- 약관 근거가 충분히 확인되지 않았습니다.")
+
+    lines.append("4) 문서 근거")
+    if document_evidence:
+        for item in document_evidence[:3]:
+            src = int(item.get("source_index", 0) or 0)
+            key_data = str(item.get("key_data", "")).strip() or "(핵심 데이터 없음)"
+            evidence = str(item.get("evidence", "")).strip() or "(근거 없음)"
+            lines.append(f"- [문서 {src}] 핵심={key_data} / 근거={evidence}")
+    else:
+        lines.append("- 추가 문서 근거가 충분하지 않습니다.")
+
+    lines.append("5) 결론")
+    lines.append(f"- {conclusion_reason or '(결론 근거 없음)'}")
+
+    lines.append("6) 다음 단계")
+    lines.append("- 약관 조항과 제출 문서를 1:1로 대조해 이의신청 포인트를 정리하세요.")
+
+    if llm_plain_explanation.strip():
+        lines.append("7) 쉬운 설명")
+        lines.append(f"- {llm_plain_explanation.strip()}")
+
+    return "\n".join(lines)
+
+
+def _mask_decision_summary(summary: dict) -> dict:
+    masked_summary = dict(summary or {})
+    for key in ("user_situation", "insurer_claim", "conclusion_reason"):
+        masked_summary[key] = _mask_pii_text(str(masked_summary.get(key, "")))
+
+    policy_clauses = []
+    for item in masked_summary.get("policy_clauses", []) or []:
+        policy_clauses.append(
+            {
+                "title": _mask_pii_text(str(item.get("title", ""))),
+                "snippet": _mask_pii_text(str(item.get("snippet", ""))),
+            }
+        )
+    masked_summary["policy_clauses"] = policy_clauses
+
+    document_evidence = []
+    for item in masked_summary.get("document_evidence", []) or []:
+        source_index = int(item.get("source_index", 1) or 1)
+        document_evidence.append(
+            {
+                "source_index": source_index,
+                "key_data": _mask_pii_text(str(item.get("key_data", ""))),
+                "evidence": _mask_pii_text(str(item.get("evidence", ""))),
+            }
+        )
+    masked_summary["document_evidence"] = document_evidence
+    return masked_summary
+
+
 def _extract_clause_blocks(relevant_terms: str, limit: int = 3) -> list[dict[str, str]]:
     text = (relevant_terms or "").strip()
     if not text:
@@ -666,9 +856,11 @@ def _build_decision_explanation_prompt(
 1) 보험사 주장(insurer_claim)과 사용자 상황(user_situation)을 먼저 분리해 적으세요.
 2) 약관 근거(policy_clauses)는 최대 3개만 고르고, 각 항목은 제목+짧은 요약(snippet)으로 작성하세요.
 3) 문서 근거(document_evidence)는 최대 3개만 고르고, source_index는 1부터 시작하세요.
-4) plain_explanation은 6~10문장으로, 쉬운 말로 작성하세요.
-5) 결론은 '현재 확보된 자료 기준'이라는 전제를 포함하세요.
-6) 근거가 부족하면 confidence를 low로 두세요.
+4) plain_explanation은 짧은 문장 위주로 8~12문장, 중학생도 이해할 수 있게 쉬운 말로 작성하세요.
+5) plain_explanation 안에 반드시 '약관 근거'를 명시하고, 실제 조항 제목을 1개 이상 인용하세요.
+6) 이름/계약번호/전화번호/이메일 등 개인정보는 원문 그대로 쓰지 말고 마스킹 형태로 표현하세요.
+7) 결론은 '현재 확보된 자료 기준'이라는 전제를 포함하세요.
+8) 근거가 부족하면 confidence를 low로 두세요.
 """
 
 
@@ -694,20 +886,6 @@ def _build_fallback_decision_explanation(state: dict) -> tuple[dict, str]:
         "약관 조항 해석과 추가 문서 근거를 종합하면, 보험사는 현재 자료 기준으로 지급 불가 방향 결론을 낸 상태입니다."
     )
 
-    lines = [
-        "현재까지 제출된 자료를 기준으로 상황을 쉽게 정리해드리겠습니다.",
-        user_situation,
-        insurer_claim,
-    ]
-    if clauses:
-        lines.append(f"보험사는 약관 조항({clauses[0]['title']})을 근거로 지급 요건 미충족을 주장할 가능성이 큽니다.")
-    if doc_evidence:
-        lines.append(
-            f"추가 문서에서도 {doc_evidence[0]['key_data']} 같은 정보가 확인되어 보험사 판단 근거로 사용될 수 있습니다."
-        )
-    lines.append(conclusion_reason)
-    lines.append("즉, 현재 확보된 자료 기준으로는 보험사 쪽 결론이 지급하지 않는 방향으로 정리된 상태입니다.")
-
     summary = {
         "user_situation": user_situation,
         "insurer_claim": insurer_claim,
@@ -716,7 +894,15 @@ def _build_fallback_decision_explanation(state: dict) -> tuple[dict, str]:
         "conclusion_reason": conclusion_reason,
         "confidence": "medium" if clauses or doc_evidence else "low",
     }
-    return summary, " ".join(lines)
+    masked_summary = _mask_decision_summary(summary)
+    explanation = _compose_user_friendly_explanation(
+        user_situation=str(masked_summary.get("user_situation", "")),
+        insurer_claim=str(masked_summary.get("insurer_claim", "")),
+        conclusion_reason=str(masked_summary.get("conclusion_reason", "")),
+        policy_clauses=list(masked_summary.get("policy_clauses", []) or []),
+        document_evidence=list(masked_summary.get("document_evidence", []) or []),
+    )
+    return masked_summary, _mask_pii_text(explanation)
 
 
 def explain_decision_node(state: dict, config: RunnableConfig) -> dict:
@@ -768,7 +954,7 @@ def explain_decision_node(state: dict, config: RunnableConfig) -> dict:
             for item in response.document_evidence[:3]
         ]
 
-        decision_summary = {
+        decision_summary_raw = {
             "user_situation": response.user_situation,
             "insurer_claim": response.insurer_claim,
             "policy_clauses": policy_clauses,
@@ -776,7 +962,18 @@ def explain_decision_node(state: dict, config: RunnableConfig) -> dict:
             "conclusion_reason": response.conclusion_reason,
             "confidence": response.confidence,
         }
-        decision_explanation = (response.plain_explanation or "").strip() or fallback_explanation
+        decision_summary = _mask_decision_summary(decision_summary_raw)
+        decision_explanation = _compose_user_friendly_explanation(
+            user_situation=str(decision_summary.get("user_situation", "")),
+            insurer_claim=str(decision_summary.get("insurer_claim", "")),
+            conclusion_reason=str(decision_summary.get("conclusion_reason", "")),
+            policy_clauses=list(decision_summary.get("policy_clauses", []) or []),
+            document_evidence=list(decision_summary.get("document_evidence", []) or []),
+            llm_plain_explanation=str(response.plain_explanation or "").strip(),
+        ).strip()
+        if not decision_explanation:
+            decision_explanation = fallback_explanation
+        decision_explanation = _mask_pii_text(decision_explanation)
         return {
             "decision_summary": decision_summary,
             "decision_explanation": decision_explanation,

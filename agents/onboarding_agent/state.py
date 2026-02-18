@@ -12,6 +12,7 @@ class OnboardingState(TypedDict, total=False):
 
     # 입력 (사용자에게 받은 파일 경로)
     denial_file_path: str  # 보험금 지급 거부 명세서 등 사용자 업로드 파일 경로
+    policy_date: str  # 약관 버전(YYYYMMDD). 없으면 노드 내부 기본값 사용
 
     # planning 노드 내부에서 parse_document 결과로 채움 후 사용
     denial_statement_text: str  # DP로 파싱된 거부 명세서 텍스트

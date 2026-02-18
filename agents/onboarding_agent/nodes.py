@@ -10,7 +10,6 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from tools.document_parser import parse_document
-from tools.rag_terms import fetch_relevant_insurance_terms
 
 from agents.onboarding_agent.schemas import (
     PlanningResponse,
@@ -37,11 +36,36 @@ def parse_denial_node(state: dict, config: RunnableConfig) -> dict:
 def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
     """
     denial_statement_text로 RAG 조회 후 relevant_terms만 state에 채운다.
-    읽기: denial_statement_text
+    읽기: denial_statement_text, (선택) policy_date
     쓰기: relevant_terms
     """
     denial_text = (state.get("denial_statement_text") or "").strip()
-    relevant_terms = fetch_relevant_insurance_terms(denial_text, top_k=5)
+    if not denial_text:
+        return {"relevant_terms": ""}
+
+    configurable = (config or {}).get("configurable", {})
+    policy_date = (
+        str(state.get("policy_date") or "").strip()
+        or str(configurable.get("policy_date") or "").strip()
+        or "20200101"
+    )
+
+    try:
+        from tools.retrieve_terms import retrieve_terms as retrieve_terms_tool
+    except Exception:
+        return {"relevant_terms": ""}
+
+    try:
+        relevant_terms = retrieve_terms_tool.invoke(
+            {
+                "query": denial_text[:3000],
+                "policy_date": policy_date,
+                "k": 5,
+            }
+        )
+    except Exception:
+        relevant_terms = ""
+
     return {"relevant_terms": relevant_terms or ""}
 
 

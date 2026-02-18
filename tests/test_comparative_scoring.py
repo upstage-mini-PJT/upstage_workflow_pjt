@@ -42,7 +42,7 @@ def test_missing_rationale_and_citations_invalidates_adjustment() -> None:
         )
     )
     assert trace["case_adjustment"] == 0
-    assert "adjustment_invalidated_missing_rationale_or_citations" in trace["guardrails_applied"]
+    assert "adjustment_invalidated_missing_citations" in trace["guardrails_applied"]
 
 
 def test_citation_mismatch_is_filtered_when_rationale_exists() -> None:
@@ -54,6 +54,5 @@ def test_citation_mismatch_is_filtered_when_rationale_exists() -> None:
             cited_case_ids=["CASELAW:999"],
         )
     )
-    assert trace["case_adjustment"] == 8
-    assert "citation_mismatch_filtered" in trace["guardrails_applied"]
-    assert "adjustment_applied_with_rationale_only" in trace["guardrails_applied"]
+    assert trace["case_adjustment"] == 0
+    assert "adjustment_invalidated_citation_mismatch" in trace["guardrails_applied"]

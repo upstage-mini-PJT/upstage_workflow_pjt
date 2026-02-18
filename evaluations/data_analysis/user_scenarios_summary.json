@@ -1,20 +1,17 @@
 {
   "scenario_count": 16,
-  "score_min": 38,
+  "score_min": 47,
   "score_max": 52,
-  "score_mean": 47.44,
+  "score_mean": 49.62,
   "band_distribution": {
-    "LOW": 2,
-    "MEDIUM": 14,
+    "LOW": 0,
+    "MEDIUM": 16,
     "HIGH": 0
   },
   "eval_bucket_distribution": {
     "LOW": 0,
-    "MEDIUM": 9,
-    "HIGH_LIKE": 7
+    "MEDIUM": 8,
+    "HIGH_LIKE": 8
   },
-  "guardrail_distribution": {
-    "citation_mismatch_filtered": 8,
-    "adjustment_applied_with_rationale_only": 8
-  }
+  "guardrail_distribution": {}
 }

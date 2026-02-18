@@ -21,4 +21,5 @@ def test_user_scenarios_pipeline_16_cases() -> None:
 
         assert 0 <= int(scoring_trace.get("precedent_score", 0)) <= 100
         assert -15 <= int(scoring_trace.get("case_adjustment", 0)) <= 15
+        assert scoring_trace.get("case_adjustment_source", "zero") in {"llm", "heuristic", "zero"}
         assert 0 <= int(scoring_trace.get("total_score", 0)) <= 100

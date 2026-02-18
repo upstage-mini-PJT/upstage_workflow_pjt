@@ -2,6 +2,7 @@ import unittest
 from unittest.mock import patch
 
 from agents.onboarding_agent.nodes import (
+    _build_extract_prompt,
     final_planning_node,
     issue_planning_node,
     request_additional_documents_node,
@@ -128,6 +129,16 @@ class PlanningRetrievalPipelineTests(unittest.TestCase):
         )
         self.assertEqual(len(payload["required_document_items"]), 2)
         self.assertEqual(result["additional_document_paths"], ["/tmp/mock1.pdf", "/tmp/mock2.pdf"])
+
+    def test_extract_prompt_forbids_using_non_document_blocks_as_evidence(self):
+        prompt = _build_extract_prompt(
+            doc_text="환자명: 홍길동\n진단명: 요추 추간판탈출증",
+            plan="진단명과 입원기간 중심으로 다툴 것",
+            required_documents=["진단서/의사 소견서"],
+        )
+        self.assertIn("[문서 내용]에서만 근거", prompt)
+        self.assertIn("복사해 출력하면 안 됩니다", prompt)
+        self.assertIn("근거가 없으면 해당 필드는 빈 문자열", prompt)
 
 
 if __name__ == "__main__":

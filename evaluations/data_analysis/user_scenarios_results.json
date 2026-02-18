@@ -13,7 +13,8 @@
     "guardrails": [
       "citation_mismatch_filtered",
       "adjustment_applied_with_rationale_only"
-    ]
+    ],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S02",
@@ -26,7 +27,8 @@
     "precedent_score": 46,
     "case_adjustment": 0,
     "total_score": 46,
-    "guardrails": []
+    "guardrails": [],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S03",
@@ -42,7 +44,8 @@
     "guardrails": [
       "citation_mismatch_filtered",
       "adjustment_applied_with_rationale_only"
-    ]
+    ],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S04",
@@ -58,7 +61,8 @@
     "guardrails": [
       "citation_mismatch_filtered",
       "adjustment_applied_with_rationale_only"
-    ]
+    ],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S05",
@@ -74,7 +78,8 @@
     "guardrails": [
       "citation_mismatch_filtered",
       "adjustment_applied_with_rationale_only"
-    ]
+    ],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S06",
@@ -90,7 +95,8 @@
     "guardrails": [
       "citation_mismatch_filtered",
       "adjustment_applied_with_rationale_only"
-    ]
+    ],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S07",
@@ -106,7 +112,8 @@
     "guardrails": [
       "citation_mismatch_filtered",
       "adjustment_applied_with_rationale_only"
-    ]
+    ],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S08",
@@ -122,7 +129,8 @@
     "guardrails": [
       "citation_mismatch_filtered",
       "adjustment_applied_with_rationale_only"
-    ]
+    ],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S09",
@@ -138,7 +146,8 @@
     "guardrails": [
       "citation_mismatch_filtered",
       "adjustment_applied_with_rationale_only"
-    ]
+    ],
+    "eval_bucket": "MEDIUM"
   },
   {
     "scenario_id": "S10",
@@ -151,6 +160,109 @@
     "precedent_score": 44,
     "case_adjustment": 0,
     "total_score": 44,
-    "guardrails": []
+    "guardrails": [],
+    "eval_bucket": "MEDIUM"
+  },
+  {
+    "scenario_id": "S11",
+    "name": "경미 사고 단기치료",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 29,
+    "success_band": "LOW",
+    "precedent_score": 42,
+    "case_adjustment": -13,
+    "total_score": 29,
+    "guardrails": [
+      "citation_mismatch_filtered",
+      "adjustment_applied_with_rationale_only"
+    ],
+    "eval_bucket": "LOW"
+  },
+  {
+    "scenario_id": "S12",
+    "name": "기왕증 중심 인과관계 약함",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 30,
+    "success_band": "LOW",
+    "precedent_score": 43,
+    "case_adjustment": -13,
+    "total_score": 30,
+    "guardrails": [
+      "citation_mismatch_filtered",
+      "adjustment_applied_with_rationale_only"
+    ],
+    "eval_bucket": "LOW"
+  },
+  {
+    "scenario_id": "S13",
+    "name": "약관 해석 유리 + 증빙 보강",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 54,
+    "success_band": "MEDIUM",
+    "precedent_score": 46,
+    "case_adjustment": 8,
+    "total_score": 54,
+    "guardrails": [
+      "citation_mismatch_filtered",
+      "adjustment_applied_with_rationale_only"
+    ],
+    "eval_bucket": "HIGH_LIKE"
+  },
+  {
+    "scenario_id": "S14",
+    "name": "면책조항 엄격해석 주장",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 55,
+    "success_band": "MEDIUM",
+    "precedent_score": 47,
+    "case_adjustment": 8,
+    "total_score": 55,
+    "guardrails": [
+      "citation_mismatch_filtered",
+      "adjustment_applied_with_rationale_only"
+    ],
+    "eval_bucket": "HIGH_LIKE"
+  },
+  {
+    "scenario_id": "S15",
+    "name": "중복보상 항목 분리 명확",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 40,
+    "success_band": "MEDIUM",
+    "precedent_score": 43,
+    "case_adjustment": -3,
+    "total_score": 40,
+    "guardrails": [
+      "citation_mismatch_filtered",
+      "adjustment_applied_with_rationale_only"
+    ],
+    "eval_bucket": "MEDIUM"
+  },
+  {
+    "scenario_id": "S16",
+    "name": "고지의무 위반 다툼 + 자료 부족",
+    "rag_items": 5,
+    "candidate_count": 5,
+    "returned_count": 5,
+    "success_score": 31,
+    "success_band": "LOW",
+    "precedent_score": 44,
+    "case_adjustment": -13,
+    "total_score": 31,
+    "guardrails": [
+      "citation_mismatch_filtered",
+      "adjustment_applied_with_rationale_only"
+    ],
+    "eval_bucket": "LOW"
   }
 ]

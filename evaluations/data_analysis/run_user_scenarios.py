@@ -33,6 +33,7 @@ def main() -> None:
             "case_adjustment": trace.get("case_adjustment", 0),
             "total_score": trace.get("total_score", 0),
             "guardrails": trace.get("guardrails_applied", []),
+            "eval_bucket": _eval_bucket(int(trace.get("total_score", 0))),
         }
         rows.append(row)
 
@@ -57,11 +58,14 @@ def main() -> None:
 def _build_summary(rows: list[dict[str, object]]) -> dict[str, object]:
     scores = [int(r.get("total_score", 0)) for r in rows]
     bands: dict[str, int] = {"LOW": 0, "MEDIUM": 0, "HIGH": 0}
+    eval_buckets: dict[str, int] = {"LOW": 0, "MEDIUM": 0, "HIGH_LIKE": 0}
     guardrail_counts: dict[str, int] = {}
 
     for r in rows:
         band = str(r.get("success_band", "LOW"))
         bands[band] = bands.get(band, 0) + 1
+        bucket = str(r.get("eval_bucket", "LOW"))
+        eval_buckets[bucket] = eval_buckets.get(bucket, 0) + 1
         for guardrail in r.get("guardrails", []):  # type: ignore[assignment]
             key = str(guardrail)
             guardrail_counts[key] = guardrail_counts.get(key, 0) + 1
@@ -73,8 +77,17 @@ def _build_summary(rows: list[dict[str, object]]) -> dict[str, object]:
         "score_max": max(scores) if scores else 0,
         "score_mean": mean_score,
         "band_distribution": bands,
+        "eval_bucket_distribution": eval_buckets,
         "guardrail_distribution": guardrail_counts,
     }
+
+
+def _eval_bucket(score: int) -> str:
+    if score <= 35:
+        return "LOW"
+    if score <= 49:
+        return "MEDIUM"
+    return "HIGH_LIKE"
 
 
 if __name__ == "__main__":

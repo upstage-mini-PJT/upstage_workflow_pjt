@@ -137,4 +137,102 @@ USER_SCENARIOS: list[dict[str, object]] = [
             open_questions=["약관 불명확성 주장 가능 여부"],
         ),
     },
+    {
+        "scenario_id": "S11",
+        "name": "경미 사고 단기치료",
+        "structured_case": StructuredCase(
+            user_info={"age": 27, "gender": "M"},
+            denial_summary="경미 사고로 장기치료 필요성이 낮아 지급 거절",
+            denial_reasons=["치료 적정성 다툼"],
+            policy_clauses=["통상 치료기간 인정"],
+            timeline=[{"date": "2025-01-02", "description": "외래 1회 치료", "actor": "병원"}],
+            evidence_summary=[{"title": "통원확인서", "summary": "단기 통원 치료", "document_type": "확인서", "source": "병원"}],
+            open_questions=["장기치료 필요성", "후유증 입증자료", "추가 영상자료 필요"],
+        ),
+    },
+    {
+        "scenario_id": "S12",
+        "name": "기왕증 중심 인과관계 약함",
+        "structured_case": StructuredCase(
+            user_info={"age": 62, "gender": "F"},
+            denial_summary="기왕증 영향이 커 사고와 직접 인과관계가 불명확",
+            denial_reasons=["인과관계 부정"],
+            policy_clauses=["사고와 직접 인과관계 필요"],
+            timeline=[{"date": "2024-10-05", "description": "가벼운 접촉 사고", "actor": "가입자"}],
+            evidence_summary=[{"title": "진료확인서", "summary": "기왕증 병력 존재", "document_type": "진료확인서", "source": "병원"}],
+            open_questions=["사고 기여도 감정 필요", "전문의 소견 보강"],
+        ),
+    },
+    {
+        "scenario_id": "S13",
+        "name": "약관 해석 유리 + 증빙 보강",
+        "structured_case": StructuredCase(
+            user_info={"age": 48, "gender": "M"},
+            denial_summary="약관 해석상 지급 제외 주장이나 문언이 모호",
+            denial_reasons=["약관 해석 다툼"],
+            policy_clauses=["약관 문언 해석"],
+            timeline=[
+                {"date": "2025-01-06", "description": "입원 치료", "actor": "병원"},
+                {"date": "2025-01-18", "description": "추가 소견서 발급", "actor": "주치의"},
+            ],
+            evidence_summary=[
+                {"title": "진단서", "summary": "입원 필요성 및 치료 필요성 명시", "document_type": "진단서", "source": "병원"},
+                {"title": "의무기록", "summary": "지속적 증상 악화 및 치료 경과 기록", "document_type": "의무기록", "source": "병원"},
+                {"title": "소견서", "summary": "약관 해석상 보장 범위에 해당 가능", "document_type": "소견서", "source": "주치의"},
+            ],
+            open_questions=[],
+        ),
+    },
+    {
+        "scenario_id": "S14",
+        "name": "면책조항 엄격해석 주장",
+        "structured_case": StructuredCase(
+            user_info={"age": 51, "gender": "F"},
+            denial_summary="면책조항 적용 주장에 대해 엄격해석 필요",
+            denial_reasons=["면책조항 적용"],
+            policy_clauses=["약관 문언 해석"],
+            timeline=[
+                {"date": "2024-12-11", "description": "사고 발생", "actor": "가입자"},
+                {"date": "2025-01-03", "description": "재활치료 지속", "actor": "병원"},
+            ],
+            evidence_summary=[
+                {"title": "진료기록", "summary": "사고 직후 증상 발생 및 악화", "document_type": "진료기록", "source": "병원"},
+                {"title": "검사결과", "summary": "사고 관련 손상 소견 확인", "document_type": "검사결과", "source": "병원"},
+                {"title": "의사소견", "summary": "면책조항 적용의 부당성 의견", "document_type": "소견서", "source": "주치의"},
+            ],
+            open_questions=[],
+        ),
+    },
+    {
+        "scenario_id": "S15",
+        "name": "중복보상 항목 분리 명확",
+        "structured_case": StructuredCase(
+            user_info={"age": 45, "gender": "M"},
+            denial_summary="중복보상 제한 주장이나 항목별 미지급 부분 존재",
+            denial_reasons=["중복보상 제한"],
+            policy_clauses=["실손 비례보상"],
+            timeline=[
+                {"date": "2025-01-09", "description": "타사 일부 지급", "actor": "타 보험사"},
+                {"date": "2025-01-25", "description": "잔여 항목 청구", "actor": "가입자"},
+            ],
+            evidence_summary=[
+                {"title": "지급내역 비교표", "summary": "타사 지급/미지급 항목 구분", "document_type": "비교표", "source": "가입자"},
+                {"title": "진료비 세부내역", "summary": "미지급 항목의 의학적 필요성 명시", "document_type": "진료비내역", "source": "병원"},
+            ],
+            open_questions=[],
+        ),
+    },
+    {
+        "scenario_id": "S16",
+        "name": "고지의무 위반 다툼 + 자료 부족",
+        "structured_case": StructuredCase(
+            user_info={"age": 39, "gender": "F"},
+            denial_summary="고지의무 위반으로 계약 해지 주장",
+            denial_reasons=["고지의무 위반"],
+            policy_clauses=["고지의무 위반 시 계약 해지"],
+            timeline=[{"date": "2023-03-01", "description": "보험 가입", "actor": "가입자"}],
+            evidence_summary=[{"title": "청약서", "summary": "간단한 기재만 존재", "document_type": "청약서", "source": "보험사"}],
+            open_questions=["중요사항 해당성", "질문표시 방식 적법성", "해지권 행사 기간 준수"],
+        ),
+    },
 ]

@@ -2,8 +2,8 @@ from agents.data_analysis_agent.pipeline import run_pipeline
 from evaluations.data_analysis.user_scenarios import USER_SCENARIOS
 
 
-def test_user_scenarios_pipeline_10_cases() -> None:
-    assert len(USER_SCENARIOS) == 10
+def test_user_scenarios_pipeline_16_cases() -> None:
+    assert len(USER_SCENARIOS) == 16
 
     for scenario in USER_SCENARIOS:
         result = run_pipeline(scenario["structured_case"])  # type: ignore[arg-type]

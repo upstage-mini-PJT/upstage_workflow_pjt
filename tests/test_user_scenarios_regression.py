@@ -4,8 +4,8 @@ from evaluations.data_analysis.user_scenarios_expectations import EXPECTED_SCENA
 
 
 def test_user_scenarios_regression_constraints() -> None:
-    assert len(USER_SCENARIOS) == 10
-    assert len(EXPECTED_SCENARIO_CONSTRAINTS) == 10
+    assert len(USER_SCENARIOS) == 16
+    assert len(EXPECTED_SCENARIO_CONSTRAINTS) == 16
 
     for scenario in USER_SCENARIOS:
         scenario_id = str(scenario["scenario_id"])

@@ -516,7 +516,15 @@ def parse_and_extract_node(state: dict, config: RunnableConfig) -> dict:
 
 def _build_extract_prompt(doc_text: str, plan: str, required_documents: list) -> str:
     req_str = ", ".join(required_documents) if required_documents else "(없음)"
-    return f"""아래는 추가 제출 서류의 문서 내용입니다. 분쟁 신청에 필요한 핵심 데이터, 근거가 되는 문구, 기타 도움이 되는 정보만 추출해 주세요.
+    return f"""당신은 문서 정보 추출기입니다.
+아래 [문서 내용]에서만 근거를 찾아 핵심 정보를 추출하세요.
+
+중요 규칙:
+1) [참고: 분쟁 신청 계획], [요청했던 서류 목록]은 추출 우선순위 참고용입니다.
+2) 위 참고 블록의 문구를 사실로 채택하거나 복사해 출력하면 안 됩니다.
+3) 출력한 모든 내용은 반드시 [문서 내용]에서 직접 확인 가능해야 합니다.
+4) [문서 내용]에 근거가 없으면 해당 필드는 빈 문자열로 두세요.
+5) 추측/일반론/외부지식 사용 금지.
 
 [참고: 분쟁 신청 계획]
 {plan[:800] if plan else "(없음)"}

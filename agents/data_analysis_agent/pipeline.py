@@ -330,9 +330,9 @@ def _compute_case_adjustment(
     ranked_cases: list[RankedCaseLawDoc],
     precedent_score: int,
     features: dict[str, Any],
-) -> tuple[int, list[str], list[str]]:
+) -> tuple[int, list[str], list[str], str]:
     if not ranked_cases:
-        return 0, ["사례 기반 보정 미적용: 검색된 사례 없음"], []
+        return 0, ["사례 기반 보정 미적용: 검색된 사례 없음"], [], "사례 없음"
 
     payload = {
         "case": {
@@ -369,14 +369,18 @@ def _compute_case_adjustment(
         ranked_cases=ranked_cases,
         precedent_score=precedent_score,
     )
-    return adjustment, adjustment_notes + notes, cited_ids
+    rationale_parts = [str(raw.get("rationale", "")).strip()]
+    if adjustment_notes:
+        rationale_parts.append(" / ".join(adjustment_notes))
+    rationale_text = " | ".join([p for p in rationale_parts if p]) or "사례 기반 휴리스틱 보정"
+    return adjustment, adjustment_notes + notes, cited_ids, rationale_text
 
 
 def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
     precedent = state.get("precedent_probability", SuccessProbability(score=0, band="LOW"))
     precedent_score = int(precedent.get("score", 0))
 
-    adjustment, notes, cited_ids = _compute_case_adjustment(
+    adjustment, notes, cited_ids, rationale_text = _compute_case_adjustment(
         state["structured_case"],
         state.get("ranked_cases", []),
         precedent_score,
@@ -387,7 +391,7 @@ def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
         ComparativeScoringInput(
             rag_result=state.get("rag_result", RAGRetrievalResult(query_id="Q-unknown", query="", filters={}, items=[], stats={"candidate_count": 0, "returned_count": 0, "latency_ms": 0})),
             case_adjustment=adjustment,
-            rationale="; ".join(notes),
+            rationale=rationale_text,
             cited_case_ids=cited_ids,
         )
     )

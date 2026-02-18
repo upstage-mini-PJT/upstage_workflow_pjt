@@ -8,7 +8,7 @@ from uuid import uuid4
 from core.schemas.rag_contract import RAGItem, RAGRetrievalResult, RetrievalProvenance, RetrievalStats, TreeNode
 from core.schemas.rag_conventions import SCORE_MAX, SCORE_MIN, clamp_score
 from tools.data_analysis_tools.rag.embedder import Embedder
-from tools.data_analysis_tools.rag.index_store import InMemoryVectorIndexStore
+from tools.data_analysis_tools.rag.index_store import VectorIndexStore
 
 
 @dataclass(frozen=True)
@@ -22,7 +22,7 @@ class RetrieveRequest:
 class VectorRetriever:
     def __init__(
         self,
-        index_store: InMemoryVectorIndexStore,
+        index_store: VectorIndexStore,
         embedder: Embedder,
         retrieval_method: str = "vector",
     ) -> None:

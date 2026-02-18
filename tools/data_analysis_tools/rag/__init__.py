@@ -18,6 +18,7 @@ from tools.data_analysis_tools.rag.index_store import (
     ChromaVectorIndexStore,
     InMemoryVectorIndexStore,
     SearchResult,
+    VectorIndexStore,
 )
 from tools.data_analysis_tools.rag.reranker import (
     RerankConfig,
@@ -46,6 +47,7 @@ __all__ = [
     "HashingEmbedder",
     "embed_chunks",
     "SearchResult",
+    "VectorIndexStore",
     "InMemoryVectorIndexStore",
     "ChromaVectorIndexStore",
     "RerankConfig",

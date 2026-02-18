@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import sqrt
-from typing import Any
+from typing import Any, Protocol
 
 from core.schemas.rag_contract import VectorChunk
 
@@ -16,6 +16,21 @@ except Exception:  # pragma: no cover - optional dependency guard
 class SearchResult:
     chunk: VectorChunk
     score: float
+
+
+class VectorIndexStore(Protocol):
+    index_name: str
+
+    def upsert(self, chunks: list[VectorChunk], embeddings: list[list[float]]) -> None: ...
+    def search(
+        self,
+        query_embedding: list[float],
+        top_k: int = 10,
+        filters: dict[str, Any] | None = None,
+    ) -> list[SearchResult]: ...
+    def get_by_doc_id(self, doc_id: str) -> list[VectorChunk]: ...
+    def count(self) -> int: ...
+    def count_filtered(self, filters: dict[str, Any] | None = None) -> int: ...
 
 
 class InMemoryVectorIndexStore:

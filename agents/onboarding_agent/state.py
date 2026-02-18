@@ -26,6 +26,7 @@ class OnboardingState(TypedDict, total=False):
     # planning 노드 출력
     relevant_terms: str  # RAG로 가져온 관련 보험 약관
     plan: str  # 분쟁신청을 위한 전략/계획
+    required_document_ids: list[str]  # 카탈로그 기준 추가 요청 서류 ID
     required_documents: list[str]  # 추가로 필요한 서류 목록 (다음 노드에서 수집)
     final_plan_confidence: str
 

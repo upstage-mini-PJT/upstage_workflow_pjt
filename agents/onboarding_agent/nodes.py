@@ -13,6 +13,12 @@ from langgraph.types import interrupt
 
 from tools.document_parser import parse_document
 
+from agents.onboarding_agent.document_catalog import (
+    build_catalog_prompt_text,
+    document_display_names,
+    document_request_items,
+    normalize_required_document_ids,
+)
 from agents.onboarding_agent.schemas import (
     DecisionExplanationResponse,
     EvidenceReference,
@@ -327,7 +333,7 @@ def final_planning_node(state: dict, config: RunnableConfig) -> dict:
     """
     약관 조회 결과를 반영해 최종 전략과 필요 서류를 확정한다.
     읽기: denial_statement_text, relevant_terms, issue_hypotheses
-    쓰기: plan, required_documents, final_plan_confidence
+    쓰기: plan, required_document_ids, required_documents, final_plan_confidence
     """
     denial_text = str(state.get("denial_statement_text", "")).strip()
     relevant_terms = str(state.get("relevant_terms", "")).strip()
@@ -339,9 +345,9 @@ def final_planning_node(state: dict, config: RunnableConfig) -> dict:
             "현재 확보된 자료를 기준으로 보험사의 지급거절 사유를 약관과 대조해 핵심 쟁점을 정리했습니다. "
             "약관 근거와 추가 문서 근거를 함께 확인하며 필요한 보완서류를 우선 수집하는 것이 다음 단계입니다."
         ),
-        required_documents=[
-            "지급거절 통지서 원문 (거절 사유 원문 확인)",
-            "진단서/소견서 (질병·치료 사실 확인)",
+        required_document_ids=[
+            "denial_notice",
+            "medical_certificate",
         ],
         confidence="low" if not relevant_terms else "medium",
     )
@@ -354,13 +360,19 @@ def final_planning_node(state: dict, config: RunnableConfig) -> dict:
         retrieval_candidates=retrieval_candidates,
     )
     response = _invoke_structured_or_fallback(chat_client, FinalPlanningResponse, prompt, fallback)
-    required_documents = [str(item).strip() for item in (response.required_documents or []) if str(item).strip()]
-    if not required_documents:
-        required_documents = list(fallback.required_documents)
+    required_document_ids = normalize_required_document_ids(
+        [str(item).strip() for item in (response.required_document_ids or []) if str(item).strip()],
+        max_items=5,
+    )
+    if not required_document_ids:
+        required_document_ids = list(fallback.required_document_ids)
+
+    required_documents = document_display_names(required_document_ids)
 
     return {
         "plan": str(response.plan).strip() or fallback.plan,
-        "required_documents": required_documents[:5],
+        "required_document_ids": required_document_ids,
+        "required_documents": required_documents,
         "final_plan_confidence": response.confidence,
     }
 
@@ -374,17 +386,29 @@ def planning_node(state: dict, config: RunnableConfig) -> dict:
 
 def request_additional_documents_node(state: dict, config: RunnableConfig) -> dict:
     """
-    required_documents로 interrupt 후, Command(resume)로 받은 경로를 additional_document_paths에 저장.
-    읽기: required_documents / 쓰기: additional_document_paths
+    카탈로그 ID 기반 요청 서류를 interrupt로 전달하고, resume 경로를 additional_document_paths에 저장.
+    읽기: required_document_ids, required_documents / 쓰기: additional_document_paths
     """
-    required = state.get("required_documents") or []
-    if not required:
+    required_ids = normalize_required_document_ids(
+        [str(item).strip() for item in (state.get("required_document_ids") or []) if str(item).strip()],
+        max_items=5,
+    )
+    required = list(state.get("required_documents") or [])
+    if required_ids and not required:
+        required = document_display_names(required_ids)
+
+    if not required_ids and not required:
         return {"additional_document_paths": []}
+
+    request_items = document_request_items(required_ids)
+    message_lines = [f"- {name}" for name in required] if required else [f"- {item['name']}" for item in request_items]
 
     payload = interrupt({
         "action": "request_additional_documents",
+        "required_document_ids": required_ids,
+        "required_document_items": request_items,
         "required_documents": required,
-        "message": "다음 서류를 제출해 주세요: " + ", ".join(required),
+        "message": "다음 서류를 제출해 주세요:\n" + "\n".join(message_lines),
     })
     # resume 시 payload가 경로 리스트 또는 dict 등으로 올 수 있음
     if isinstance(payload, list):
@@ -408,6 +432,7 @@ def _build_final_planning_prompt(
     retrieval_candidates: list[dict],
 ) -> str:
     hypotheses_text = "\n".join(f"- {item}" for item in issue_hypotheses[:6]) or "- (없음)"
+    catalog_text = build_catalog_prompt_text()
     candidate_lines = []
     for idx, item in enumerate(retrieval_candidates[:5], start=1):
         candidate_lines.append(
@@ -433,15 +458,20 @@ def _build_final_planning_prompt(
 [검색된 약관 후보 요약]
 {candidates_text}
 
+[추가 서류 카탈로그]
+{catalog_text}
+
 다음 두 가지를 구조화된 형식으로 작성해 주세요.
 
 1) plan (전략/계획)
 - 상황 요약: 피보험자, 보험 종목, 거부 사유, 금액 등 핵심 사실만 2~3문장으로 간결히 요약하세요.
 - 전략/계획: 거부 사유에 대한 법·약관상 논거, 분쟁 조정·심사 청구 시 강조할 포인트, 필요 시 보완할 증거(서류)와의 연결을 구체적으로 3~5문장 이상 서술하세요.
 
-2) required_documents (추가 필요 서류)
-- 전략적인 분쟁 신청을 위해 "추가로" 제출이 필요한 서류만 나열하세요. 이미 거부 명세서에 포함된 자료는 제외합니다.
-- 위 전략에서 필요하다고 판단한 서류만 최대 3개, 각 항목은 "서류명 (목적/키워드)" 형식으로 적고, 서류명은 퇴원요약서·진단서·소득증명원 등 실제 제출 가능한 구체적 명칭을 사용하세요.
+2) required_document_ids (추가 필요 서류 ID 목록)
+- 반드시 위 카탈로그의 id 중에서만 선택하세요.
+- 임의의 새 서류명을 만들지 마세요.
+- 최대 5개까지만 선택하세요.
+- 전략적으로 꼭 필요한 문서만 선택하세요.
 
 추가로 confidence( high / medium / low )를 함께 반환하세요.
 """

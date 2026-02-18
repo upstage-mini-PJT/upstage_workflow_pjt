@@ -70,5 +70,8 @@ class DecisionExplanationResponse(BaseModel):
 
 class FinalPlanningResponse(BaseModel):
     plan: str = Field(description="약관 근거 반영 최종 전략")
-    required_documents: list[str] = Field(default_factory=list, description="최종 필요 서류")
+    required_document_ids: list[str] = Field(
+        default_factory=list,
+        description="문서 카탈로그에서 선택한 최종 필요 서류 ID 목록",
+    )
     confidence: Literal["high", "medium", "low"] = Field(default="medium")

@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import json
+import os
 from pathlib import Path
+import re
+import time
 from typing import Any, TypedDict
 
+from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph import END, START, StateGraph
+from langchain_openai import ChatOpenAI
 import yaml
 
 from agents.data_analysis_agent.adapters import ranked_case_to_evidence_item
@@ -44,6 +50,10 @@ class DataAnalysisState(TypedDict, total=False):
     scoring_trace: dict[str, Any]
     success_probability_public: SuccessProbability
     strategy_context: dict[str, Any]
+    synthesized_summary: dict[str, Any]
+    quality_flags: list[str]
+    llm_enrichment_trace: dict[str, Any]
+    llm_raw_output: str
     evidence_pack: list[dict[str, Any]]
     analysis_result: AnalysisResult
 
@@ -626,6 +636,407 @@ def _package_evidence_node(state: DataAnalysisState) -> DataAnalysisState:
     return {"evidence_pack": evidence}
 
 
+def _priority_rank(priority: str) -> int:
+    order = {"high": 0, "medium": 1, "low": 2}
+    return order.get(str(priority).lower(), 1)
+
+
+def _source_type_to_public(source_type: str) -> str:
+    st = str(source_type).strip().lower()
+    if st in {"caselaw", "case_law"}:
+        return "CASELAW"
+    if st in {"dispute_case", "dispute"}:
+        return "DISPUTE"
+    return "WEB"
+
+
+def _ref_from_evidence(evidence_item: dict[str, Any]) -> str:
+    provenance_list = evidence_item.get("provenance", [])
+    if provenance_list and isinstance(provenance_list, list):
+        first = provenance_list[0] if provenance_list else {}
+        if isinstance(first, dict):
+            source_type = _source_type_to_public(str(first.get("source_type", "caselaw")))
+            source_id = str(first.get("source_id", "")).strip()
+            if source_id:
+                return f"{source_type}:{source_id}"
+
+    evidence_id = str(evidence_item.get("evidence_id", "")).strip()
+    if evidence_id:
+        return f"CASELAW:{evidence_id}"
+    return "CASELAW:UNKNOWN"
+
+
+def _build_issue_evidence_map_from_pack(evidence_pack: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    issue_map: dict[str, list[dict[str, Any]]] = {}
+    for item in evidence_pack:
+        issue_id = str(item.get("issue_id", "ISSUE-1"))
+        issue_map.setdefault(issue_id, []).append(item)
+    for issue_id in issue_map:
+        issue_map[issue_id] = issue_map[issue_id][:2]
+    return issue_map
+
+
+def _synthesize_analysis_node(state: DataAnalysisState) -> DataAnalysisState:
+    issue_tree = state.get("issue_tree", {})
+    issue_nodes = issue_tree.get("nodes", [])
+    gap_analysis = state.get("gap_analysis", [])
+    actions = state.get("recommended_actions", [])
+    evidence_pack = state.get("evidence_pack", [])
+    strategy_context = state.get("strategy_context", {})
+
+    sorted_actions = sorted(actions, key=lambda a: _priority_rank(str(a.get("priority", "medium"))))
+    high_impact_gaps = [g for g in gap_analysis if str(g.get("impact", "")).lower() == "high"]
+    risk_flags = list(strategy_context.get("risk_flags", []))
+
+    quality_flags: list[str] = []
+    if not issue_nodes:
+        quality_flags.append("missing_issue_tree")
+    if not sorted_actions:
+        quality_flags.append("missing_actions")
+    if not evidence_pack:
+        quality_flags.append("missing_evidence_pack")
+    if not state.get("success_probability_public", {}).get("band"):
+        quality_flags.append("missing_band")
+    if len(evidence_pack) < max(1, len(issue_nodes)):
+        quality_flags.append("low_evidence_coverage")
+
+    key_issues = [
+        {
+            "issue_id": str(node.get("issue_id", "ISSUE-1")),
+            "title": str(node.get("title", "")),
+        }
+        for node in issue_nodes[:3]
+    ]
+
+    summary = {
+        "band": state.get("success_probability_public", {}).get("band", "LOW"),
+        "key_issues": key_issues,
+        "high_impact_gap_count": len(high_impact_gaps),
+        "evidence_count": len(evidence_pack),
+        "risk_flags": risk_flags,
+        "priority_action_ids": [str(a.get("action_id", "")) for a in sorted_actions[:3]],
+    }
+
+    return {
+        "recommended_actions": sorted_actions,
+        "synthesized_summary": summary,
+        "quality_flags": quality_flags,
+    }
+
+
+def _build_action_evidence_candidates(
+    actions: list[RecommendedAction],
+    evidence_pack: list[dict[str, Any]],
+) -> dict[str, list[dict[str, Any]]]:
+    by_issue = _build_issue_evidence_map_from_pack(evidence_pack)
+    candidates: dict[str, list[dict[str, Any]]] = {}
+    for action in actions:
+        action_id = str(action.get("action_id", ""))
+        issue_id = str(action.get("linked_issue_id", "ISSUE-1"))
+        issue_evidence = by_issue.get(issue_id, [])
+        if not issue_evidence:
+            issue_evidence = evidence_pack[:2]
+        candidates[action_id] = issue_evidence[:2]
+    return candidates
+
+
+def _build_llm_messages(
+    actions: list[RecommendedAction],
+    action_evidence: dict[str, list[dict[str, Any]]],
+    band: str,
+    simplified: bool = False,
+) -> tuple[SystemMessage, HumanMessage]:
+    if simplified:
+        system_prompt = (
+            "You rewrite Korean action details for insurance re-review. "
+            "Do not change action_id, priority, linked_issue_id. "
+            "Return JSON only: {\"actions\":[{\"action_id\":\"...\",\"enriched_detail\":\"...\"}]}. "
+            "Each enriched_detail must include at least one evidence reference like (CASELAW:123). "
+            "No legal certainty claims."
+        )
+    else:
+        system_prompt = (
+            "You are a legal-insurance analysis writing assistant. "
+            "Narration-only task: do not alter decisions. "
+            "Never change band, priority, linked_issue_id. "
+            "Ground strictly on provided evidence only. "
+            "Output JSON only with schema "
+            "{\"actions\":[{\"action_id\":\"ACTION-1\",\"enriched_detail\":\"...\"}]}. "
+            "Each enriched_detail must include at least one provenance token in format "
+            "(CASELAW:doc_id) or (DISPUTE:doc_id) or (WEB:doc_id). "
+            "Use concise Korean imperative style and avoid definitive legal advice."
+        )
+
+    payload_actions = []
+    for action in actions:
+        action_id = str(action.get("action_id", ""))
+        evidence_rows = []
+        for ev in action_evidence.get(action_id, []):
+            evidence_rows.append(
+                {
+                    "ref": _ref_from_evidence(ev),
+                    "title": str(ev.get("evidence_title", "")),
+                    "snippet": str(ev.get("summary", "")),
+                }
+            )
+        payload_actions.append(
+            {
+                "action_id": action_id,
+                "title": str(action.get("title", "")),
+                "detail": str(action.get("detail", "")),
+                "priority": str(action.get("priority", "")),
+                "linked_issue_id": str(action.get("linked_issue_id", "")),
+                "evidence_candidates": evidence_rows,
+            }
+        )
+
+    human_payload = {
+        "band": band,
+        "actions": payload_actions,
+        "instructions": {
+            "keep_action_count": len(actions),
+            "do_not_change_ids_or_priority": True,
+            "korean_style": "간결한 실행 지시형",
+        },
+    }
+
+    return SystemMessage(content=system_prompt), HumanMessage(content=json.dumps(human_payload, ensure_ascii=False))
+
+
+def _extract_json_object(text: str) -> dict[str, Any]:
+    stripped = text.strip()
+    if not stripped:
+        return {}
+    try:
+        loaded = json.loads(stripped)
+        return loaded if isinstance(loaded, dict) else {}
+    except Exception:
+        pass
+
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start >= 0 and end > start:
+        snippet = stripped[start : end + 1]
+        try:
+            loaded = json.loads(snippet)
+            return loaded if isinstance(loaded, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _has_reference_token(text: str) -> bool:
+    return bool(re.search(r"\((CASELAW|DISPUTE|WEB):[^)]+\)", text))
+
+
+def _enforce_reference(detail: str, evidence_candidates: list[dict[str, Any]]) -> str:
+    text = str(detail).strip()
+    if _has_reference_token(text):
+        return text
+    ref = ""
+    if evidence_candidates:
+        ref = _ref_from_evidence(evidence_candidates[0])
+    if not ref:
+        ref = "CASELAW:UNKNOWN"
+    suffix = f" ({ref})"
+    return (text + suffix).strip()
+
+
+def _trigger_hitl_retry(state: DataAnalysisState, reason: str, attempt: int, latency_ms: int) -> bool:
+    handler = state.get("analysis_options", {}).get("hitl_retry_handler")
+    if callable(handler):
+        try:
+            return bool(
+                handler(
+                    {
+                        "reason": reason,
+                        "attempt": attempt,
+                        "latency_ms": latency_ms,
+                    }
+                )
+            )
+        except Exception:
+            return True
+    return True
+
+
+def _stream_chat_completion(llm: ChatOpenAI, messages: list[Any], timeout_s: float) -> tuple[str, int]:
+    started = time.monotonic()
+    chunks: list[str] = []
+    for chunk in llm.stream(messages):
+        elapsed = time.monotonic() - started
+        if elapsed > timeout_s:
+            raise TimeoutError("llm_stream_timeout")
+        piece = getattr(chunk, "content", "")
+        if isinstance(piece, list):
+            piece = "".join(str(p) for p in piece)
+        if piece:
+            chunks.append(str(piece))
+    latency_ms = int((time.monotonic() - started) * 1000)
+    return "".join(chunks), latency_ms
+
+
+def _llm_action_enrichment_node(state: DataAnalysisState) -> DataAnalysisState:
+    actions = list(state.get("recommended_actions", []))
+    default_model = "solar-pro3"
+    default_base_url = "https://api.upstage.ai/v1/solar"
+    if not actions:
+        return {
+            "llm_enrichment_trace": {
+                "model": default_model,
+                "latency_ms": 0,
+                "attempt": 0,
+                "streaming_used": False,
+                "hitl_triggered": False,
+                "fallback_used": True,
+            },
+            "llm_raw_output": "",
+        }
+
+    if os.getenv("STEP3_DISABLE_LLM_ENRICHMENT", "0") == "1":
+        return {
+            "llm_enrichment_trace": {
+                "model": default_model,
+                "latency_ms": 0,
+                "attempt": 0,
+                "streaming_used": False,
+                "hitl_triggered": False,
+                "fallback_used": True,
+            },
+            "llm_raw_output": "",
+        }
+
+    options = state.get("analysis_options", {})
+    enabled = bool(options.get("llm_enrichment_enabled", True))
+    if not enabled:
+        return {
+            "llm_enrichment_trace": {
+                "model": default_model,
+                "latency_ms": 0,
+                "attempt": 0,
+                "streaming_used": False,
+                "hitl_triggered": False,
+                "fallback_used": True,
+            },
+            "llm_raw_output": "",
+        }
+
+    api_key = os.getenv("UPSTAGE_API_KEY", "")
+    if not api_key:
+        return {
+            "llm_enrichment_trace": {
+                "model": default_model,
+                "latency_ms": 0,
+                "attempt": 0,
+                "streaming_used": False,
+                "hitl_triggered": False,
+                "fallback_used": True,
+            },
+            "llm_raw_output": "",
+        }
+
+    model_name = str(options.get("llm_model", default_model))
+    base_url = str(options.get("llm_base_url", os.getenv("UPSTAGE_BASE_URL", default_base_url))).strip() or default_base_url
+    timeout_s = float(options.get("llm_timeout_s", 10))
+
+    llm_kwargs: dict[str, Any] = {
+        "model": model_name,
+        "api_key": api_key,
+        "temperature": 0.2,
+    }
+    if base_url:
+        llm_kwargs["base_url"] = base_url
+
+    llm = ChatOpenAI(**llm_kwargs)
+    action_evidence = _build_action_evidence_candidates(actions, state.get("evidence_pack", []))
+    band = str(state.get("success_probability_public", {}).get("band", "LOW"))
+
+    hitl_triggered = False
+    raw_text = ""
+    latency_ms = 0
+    fallback_used = False
+    final_attempt = 0
+
+    attempts = [False, False, True]
+    for idx, simplified in enumerate(attempts, start=1):
+        final_attempt = idx
+        system_msg, human_msg = _build_llm_messages(actions, action_evidence, band, simplified=simplified)
+        try:
+            raw_text, latency_ms = _stream_chat_completion(llm, [system_msg, human_msg], timeout_s=timeout_s)
+            parsed = _extract_json_object(raw_text)
+            rows = parsed.get("actions", []) if isinstance(parsed, dict) else []
+            if not isinstance(rows, list):
+                rows = []
+            enriched_by_id = {
+                str(row.get("action_id", "")): str(row.get("enriched_detail", "")).strip()
+                for row in rows
+                if isinstance(row, dict)
+            }
+
+            if not enriched_by_id and idx == 1:
+                continue
+            if not enriched_by_id:
+                fallback_used = True
+                break
+
+            new_actions: list[RecommendedAction] = []
+            for action in actions:
+                action_id = str(action.get("action_id", ""))
+                candidate = enriched_by_id.get(action_id, str(action.get("detail", "")))
+                candidate = _enforce_reference(candidate, action_evidence.get(action_id, []))
+                patched = dict(action)
+                patched["detail"] = candidate
+                new_actions.append(RecommendedAction(**patched))
+
+            return {
+                "recommended_actions": new_actions,
+                "llm_raw_output": raw_text,
+                "llm_enrichment_trace": {
+                    "model": model_name,
+                    "latency_ms": latency_ms,
+                    "attempt": idx,
+                    "streaming_used": True,
+                    "hitl_triggered": hitl_triggered,
+                    "fallback_used": False,
+                },
+            }
+        except TimeoutError:
+            if not hitl_triggered:
+                hitl_triggered = _trigger_hitl_retry(
+                    state=state,
+                    reason="timeout",
+                    attempt=idx,
+                    latency_ms=int(timeout_s * 1000),
+                )
+            continue
+        except Exception:
+            if idx == len(attempts):
+                fallback_used = True
+                break
+            continue
+
+    fallback_actions: list[RecommendedAction] = []
+    for action in actions:
+        action_id = str(action.get("action_id", ""))
+        detail = _enforce_reference(str(action.get("detail", "")), action_evidence.get(action_id, []))
+        patched = dict(action)
+        patched["detail"] = detail
+        fallback_actions.append(RecommendedAction(**patched))
+
+    return {
+        "recommended_actions": fallback_actions,
+        "llm_raw_output": raw_text,
+        "llm_enrichment_trace": {
+            "model": model_name,
+            "latency_ms": latency_ms,
+            "attempt": final_attempt,
+            "streaming_used": True,
+            "hitl_triggered": hitl_triggered,
+            "fallback_used": True,
+        },
+    }
+
+
 def _finalize_node(state: DataAnalysisState) -> DataAnalysisState:
     result = AnalysisResult(
         issue_tree=state.get("issue_tree", IssueTree(root_title="보험금 부지급 재심의 쟁점", nodes=[])),
@@ -658,6 +1069,8 @@ def build_graph() -> Any:
     graph.add_node("build_strategy_context", _build_strategy_context_node)
     graph.add_node("strategy", _strategy_node)
     graph.add_node("package_evidence", _package_evidence_node)
+    graph.add_node("synthesize_analysis", _synthesize_analysis_node)
+    graph.add_node("llm_action_enrichment", _llm_action_enrichment_node)
     graph.add_node("finalize", _finalize_node)
 
     graph.add_edge(START, "build_query")
@@ -671,7 +1084,9 @@ def build_graph() -> Any:
     graph.add_edge("estimate_success_probability", "build_strategy_context")
     graph.add_edge("build_strategy_context", "strategy")
     graph.add_edge("strategy", "package_evidence")
-    graph.add_edge("package_evidence", "finalize")
+    graph.add_edge("package_evidence", "synthesize_analysis")
+    graph.add_edge("synthesize_analysis", "llm_action_enrichment")
+    graph.add_edge("llm_action_enrichment", "finalize")
     graph.add_edge("finalize", END)
     return graph.compile()
 

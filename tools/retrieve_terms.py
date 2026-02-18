@@ -77,6 +77,29 @@ def vectordb_document_count(vectordb: Chroma | None = None) -> int:
     return _collection_count(target_vectordb)
 
 
+def list_policy_dates(vectordb: Chroma | None = None) -> list[str]:
+    """
+    Return sorted unique policy_date values present in the vector DB.
+    """
+    target_vectordb = vectordb or load_vectordb()
+    count = _collection_count(target_vectordb)
+    if count <= 0:
+        return []
+
+    try:
+        data = target_vectordb.get(include=["metadatas"], limit=count)
+    except Exception:
+        return []
+
+    metadatas = data.get("metadatas", []) or []
+    dates = {
+        date
+        for date in (str(md.get("policy_date", "")).strip() for md in metadatas)
+        if len(date) == 8 and date.isdigit()
+    }
+    return sorted(dates)
+
+
 def retrieve_terms_text(
     query: str,
     policy_date: str,

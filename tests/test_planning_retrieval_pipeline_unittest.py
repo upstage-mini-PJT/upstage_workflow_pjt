@@ -4,6 +4,7 @@ from unittest.mock import patch
 from agents.onboarding_agent.nodes import (
     final_planning_node,
     issue_planning_node,
+    request_additional_documents_node,
     retrieve_terms_node,
 )
 
@@ -106,7 +107,27 @@ class PlanningRetrievalPipelineTests(unittest.TestCase):
 
         self.assertTrue(result["plan"])
         self.assertTrue(result["required_documents"])
+        self.assertTrue(result["required_document_ids"])
+        self.assertIn("denial_notice", result["required_document_ids"])
         self.assertEqual(result["final_plan_confidence"], "low")
+
+    @patch("agents.onboarding_agent.nodes.interrupt")
+    def test_request_additional_documents_uses_catalog_selection(self, mock_interrupt):
+        mock_interrupt.return_value = ["/tmp/mock1.pdf", "/tmp/mock2.pdf"]
+        state = {
+            "required_document_ids": ["invalid_id", "denial_notice", "medical_certificate", "denial_notice"],
+        }
+
+        result = request_additional_documents_node(state, config={})
+
+        payload = mock_interrupt.call_args.args[0]
+        self.assertEqual(payload["required_document_ids"], ["denial_notice", "medical_certificate"])
+        self.assertEqual(
+            payload["required_documents"],
+            ["보험금 지급거절 통지서 원문", "진단서/의사 소견서"],
+        )
+        self.assertEqual(len(payload["required_document_items"]), 2)
+        self.assertEqual(result["additional_document_paths"], ["/tmp/mock1.pdf", "/tmp/mock2.pdf"])
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ onboarding_agent 전용 테스트 그래프.
 import argparse
 import os
 from pathlib import Path
+import sys
 import uuid
 from dotenv import load_dotenv
 from langchain_core.runnables import RunnableConfig
@@ -122,6 +123,43 @@ def _select_policy_date(join_date: str, available_dates: list[str]) -> tuple[str
     return chosen, f"가입일({join_date})이 모든 약관 버전보다 이전이라 최소 policy_date({chosen}) 선택"
 
 
+def _resolve_denial_file_path(arg_value: str) -> str:
+    file_path = str(arg_value or "").strip()
+    while True:
+        if not file_path and sys.stdin.isatty():
+            file_path = input("지급거절 명세서 파일 경로를 입력하세요: ").strip()
+        if not file_path:
+            raise SystemExit(
+                "지급거절 명세서 파일 경로가 필요합니다. "
+                "--denial-file 또는 ONBOARDING_DENIAL_FILE을 설정하거나 실행 중 입력하세요."
+            )
+        if Path(file_path).exists():
+            return file_path
+        if not sys.stdin.isatty():
+            raise SystemExit(f"입력 파일이 존재하지 않습니다: {file_path}")
+        print(f"입력 파일이 존재하지 않습니다: {file_path}")
+        file_path = ""
+
+
+def _resolve_join_date(arg_value: str) -> str:
+    join_date = str(arg_value or "").strip()
+    while True:
+        if not join_date and sys.stdin.isatty():
+            join_date = input("보험 가입일(YYYYMMDD)을 입력하세요: ").strip()
+        if not join_date:
+            raise SystemExit(
+                "가입일이 필요합니다. --join-date 또는 ONBOARDING_JOIN_DATE를 설정하거나 실행 중 입력하세요."
+            )
+        if len(join_date) == 8 and join_date.isdigit():
+            return join_date
+        if not sys.stdin.isatty():
+            raise SystemExit(
+                f"--join-date / ONBOARDING_JOIN_DATE는 YYYYMMDD 형식이어야 합니다. 입력값: {join_date}"
+            )
+        print(f"가입일 형식이 올바르지 않습니다: {join_date} (예: 20250301)")
+        join_date = ""
+
+
 
 
 # 2. 실행 로직 (전처리 + 실행)
@@ -131,16 +169,8 @@ if __name__ == "__main__":
     print(f"--- 🚀 테스트 시작 (Thread ID: {thread_id}) ---")
 
     # [Step 1: 외부 전처리] 그래프 실행 전, 입력 문서 경로/가입일 받기
-    valid_file_path = str(args.denial_file or "").strip()
-    if not valid_file_path:
-        raise SystemExit(
-            "지급거절 명세서 파일 경로가 필요합니다. "
-            "--denial-file 또는 ONBOARDING_DENIAL_FILE을 설정하세요."
-        )
-    if not Path(valid_file_path).exists():
-        raise SystemExit(f"입력 파일이 존재하지 않습니다: {valid_file_path}")
-
-    join_date = str(args.join_date or "").strip()
+    valid_file_path = _resolve_denial_file_path(args.denial_file)
+    join_date = _resolve_join_date(args.join_date)
 
     # [Step 2: 벡터 DB 준비 (콜드 스타트 시 1회 인덱싱)]
     policy_vectordb = None
@@ -155,10 +185,6 @@ if __name__ == "__main__":
         print(f"--- ⚠️ Vector DB cold-start skipped: {exc} ---")
 
     # [Step 3: 가입일 기준 policy_date 선택]
-    if not join_date:
-        raise SystemExit(
-            "가입일이 필요합니다. --join-date 또는 ONBOARDING_JOIN_DATE를 설정하세요."
-        )
     normalized_join_date = _validate_yyyymmdd(
         join_date,
         label="--join-date / ONBOARDING_JOIN_DATE",

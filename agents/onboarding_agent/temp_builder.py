@@ -16,6 +16,7 @@ from langchain_upstage import (
     UpstageUniversalInformationExtraction,
 )
 from langgraph.checkpoint.memory import MemorySaver
+from tools.retrieve_terms import ensure_vectordb_ready, load_vectordb, vectordb_document_count
 from .nodes import (
     parse_denial_node,
     retrieve_terms_node,
@@ -77,18 +78,30 @@ if __name__ == "__main__":
     print(f"--- 🚀 테스트 시작 (Thread ID: {thread_id}) ---")
 
     # [Step 1: 외부 전처리] 그래프 실행 전, 유효한 파일 경로 받기
-    valid_file_path = "/Users/chanwooyang/workspace/upstage_workflow_pjt/agents/onboarding_agent/korean_denial_mock.pdf"
+    valid_file_path = "/Users/chanwooyang/workspace/upstage_workflow_pjt/hyundai_senior_silson_denial_sample.pdf"
 
-    # [Step 2: 설정 준비]
+    # [Step 2: 벡터 DB 준비 (콜드 스타트 시 1회 인덱싱)]
+    policy_vectordb = None
+    try:
+        policy_vectordb = ensure_vectordb_ready(load_vectordb())
+        print(f"--- 📚 Vector DB ready (docs={vectordb_document_count(policy_vectordb)}) ---")
+    except Exception as exc:
+        print(f"--- ⚠️ Vector DB cold-start skipped: {exc} ---")
+
+    # [Step 3: 설정 준비]
+    configurable = {
+        "ie_client": UpstageUniversalInformationExtraction(),
+        "chat_client": ChatUpstage(model="solar-pro2"),
+        "thread_id": thread_id,
+    }
+    if policy_vectordb is not None:
+        configurable["policy_vectordb"] = policy_vectordb
+
     runnable_config: RunnableConfig = {
-        "configurable": {
-            "ie_client": UpstageUniversalInformationExtraction(),
-            "chat_client": ChatUpstage(model="solar-pro2"),
-            "thread_id": thread_id
-        }
+        "configurable": configurable
     }
 
-    # [Step 3: 그래프 실행] interrupt 발생 시 resume 루프 until END
+    # [Step 4: 그래프 실행] interrupt 발생 시 resume 루프 until END
     print(f"\n--- 🤖 그래프 분석 시작 (파일: {valid_file_path}) ---")
 
     result = onboarding_graph.invoke(

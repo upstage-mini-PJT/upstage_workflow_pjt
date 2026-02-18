@@ -49,19 +49,20 @@ def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
         or str(configurable.get("policy_date") or "").strip()
         or "20200101"
     )
+    policy_vectordb = configurable.get("policy_vectordb")
 
     try:
-        from tools.retrieve_terms import retrieve_terms as retrieve_terms_tool
+        from tools.retrieve_terms import ensure_vectordb_ready, retrieve_terms_text
     except Exception:
         return {"relevant_terms": ""}
 
     try:
-        relevant_terms = retrieve_terms_tool.invoke(
-            {
-                "query": denial_text[:3000],
-                "policy_date": policy_date,
-                "k": 5,
-            }
+        ready_vectordb = ensure_vectordb_ready(policy_vectordb)
+        relevant_terms = retrieve_terms_text(
+            query=denial_text[:3000],
+            policy_date=policy_date,
+            k=5,
+            vectordb=ready_vectordb,
         )
     except Exception:
         relevant_terms = ""

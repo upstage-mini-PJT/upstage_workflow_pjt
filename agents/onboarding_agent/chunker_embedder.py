@@ -8,23 +8,26 @@ File naming convention: YYYYMMDD.md (e.g., 20200101.md)
 Policy date and title are extracted from the filename.
 """
 
+from __future__ import annotations
+
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
+from langchain_chroma import Chroma
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
 from langchain_upstage import UpstageEmbeddings
-from langchain_chroma import Chroma
 
 load_dotenv()
 
 # ============================================================================
 # Configuration
 # ============================================================================
-from collections import Counter
 UPSTAGE_API_KEY = os.getenv("UPSTAGE_API_KEY")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "solar-embedding-1-large")
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-POLICIES_DIR = os.getenv("POLICIES_DIR", os.path.join(BASE_DIR, "../../data/policies"))
-VECTOR_DIR = os.getenv("VECTOR_DIR", os.path.join(BASE_DIR, "../../data/chroma"))
+BASE_DIR = Path(__file__).resolve().parent
+POLICIES_DIR = Path(os.getenv("POLICIES_DIR", str((BASE_DIR / "../../data/policies").resolve()))).resolve()
+VECTOR_DIR = Path(os.getenv("VECTOR_DIR", str((BASE_DIR / "../../data/chroma").resolve()))).resolve()
 
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 30
@@ -124,44 +127,64 @@ def check_for_duplicate_articles(vectordb, policy_date: str):
     if not duplicates_found:
         print(f"  ✅ No duplicate articles detected for {policy_date}.")
 
-# ============================================================================
-# Main
-# ============================================================================
 
-def main():
+def load_policy_vectordb() -> Chroma:
     embeddings_model = UpstageEmbeddings(
         api_key=UPSTAGE_API_KEY,
-        model=EMBEDDING_MODEL
+        model=EMBEDDING_MODEL,
     )
-    vectordb = Chroma(
-        persist_directory=VECTOR_DIR,
-        embedding_function=embeddings_model
+    return Chroma(
+        persist_directory=str(VECTOR_DIR),
+        embedding_function=embeddings_model,
     )
 
-    policy_files = sorted([
-        f for f in os.listdir(POLICIES_DIR)
-        if f.endswith('.md')
-    ])
 
+def _collection_count(vectordb: Chroma) -> int:
+    try:
+        return int(vectordb._collection.count())
+    except Exception:
+        return 0
+
+
+def build_policy_index(vectordb: Chroma | None = None, *, skip_if_populated: bool = True) -> Chroma:
+    """
+    Build vector index from policy markdown files.
+
+    If `skip_if_populated` is True and existing documents are present, indexing
+    is skipped to avoid duplicate inserts.
+    """
+    target_vectordb = vectordb or load_policy_vectordb()
+
+    existing_count = _collection_count(target_vectordb)
+    if skip_if_populated and existing_count > 0:
+        print(f"Vector DB already populated ({existing_count} docs). Skip indexing.")
+        return target_vectordb
+
+    policy_files = sorted([f for f in os.listdir(POLICIES_DIR) if f.endswith(".md")])
     if not policy_files:
-        print(f"No markdown files found in {POLICIES_DIR}")
-        return
+        raise FileNotFoundError(f"No markdown files found in {POLICIES_DIR}")
 
     for filename in policy_files:
-        policy_date = filename.replace('.md', '')
+        policy_date = filename.replace(".md", "")
         policy_title = POLICY_TITLES.get(policy_date, f"보험약관_{policy_date}")
 
         print(f"\nProcessing {filename}...")
         file_path = os.path.join(POLICIES_DIR, filename)
 
         splits = chunk_policy(file_path, policy_date, policy_title)
-        vectordb.add_documents(splits)
+        target_vectordb.add_documents(splits)
         print(f"  Embedded {len(splits)} chunks for {policy_date}")
+        check_for_duplicate_articles(target_vectordb, policy_date)
 
-        # Check for non-contiguous (section, article) pairs in this policy
-        check_for_duplicate_articles(vectordb, policy_date)
+    print(f"\nDone. Total docs in DB: {_collection_count(target_vectordb)}")
+    return target_vectordb
 
-    print(f"\nDone. Total docs in DB: {vectordb._collection.count()}")
+# ============================================================================
+# Main
+# ============================================================================
+
+def main():
+    build_policy_index(skip_if_populated=True)
 
 if __name__ == "__main__":
     main()

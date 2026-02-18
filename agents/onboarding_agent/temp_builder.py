@@ -212,6 +212,30 @@ def _resolve_mock_resume_paths(
     return resolved_paths
 
 
+def _build_chat_client() -> ChatUpstage:
+    model_name = str(os.getenv("ONBOARDING_CHAT_MODEL", "solar-pro2")).strip() or "solar-pro2"
+    try:
+        timeout_sec = float(str(os.getenv("ONBOARDING_CHAT_TIMEOUT", "45")).strip())
+    except ValueError:
+        timeout_sec = 45.0
+    try:
+        max_retries = int(str(os.getenv("ONBOARDING_CHAT_MAX_RETRIES", "1")).strip())
+    except ValueError:
+        max_retries = 1
+    timeout_sec = max(timeout_sec, 5.0)
+    max_retries = max(max_retries, 0)
+
+    print(
+        f"--- 🤖 Chat client: model={model_name}, "
+        f"timeout={timeout_sec:.0f}s, max_retries={max_retries} ---"
+    )
+    return ChatUpstage(
+        model=model_name,
+        timeout=timeout_sec,
+        max_retries=max_retries,
+    )
+
+
 
 
 # 2. 실행 로직 (전처리 + 실행)
@@ -253,7 +277,7 @@ if __name__ == "__main__":
     # [Step 4: 설정 준비]
     configurable = {
         "ie_client": UpstageUniversalInformationExtraction(),
-        "chat_client": ChatUpstage(model="solar-pro2"),
+        "chat_client": _build_chat_client(),
         "policy_date": selected_policy_date,
         "thread_id": thread_id,
     }

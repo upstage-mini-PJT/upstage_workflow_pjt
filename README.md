@@ -153,6 +153,23 @@ export RAG_INDEX_NAME=step3_rag_index
 - 기본값은 `inmemory`
 - Chroma 실행 시 Python 3.14는 비호환 이슈가 있어 3.13 권장
 
+## 📚 KCA 분쟁사례 데이터 연동
+
+- 반입 경로:
+  - `data/data_analysis_data/converted_cases/kca_finance_insurance_cases_all.json`
+- 보험 필터 결과:
+  - `data/data_analysis_data/converted_cases/kca_finance_insurance_cases_filtered.json`
+- 검색 소스 연동 기본값:
+  - `RAG_INCLUDE_KCA=true`
+
+```bash
+# KCA 소스 끄기
+export RAG_INCLUDE_KCA=false
+
+# KCA 데이터 파일 경로 커스텀
+export RAG_KCA_DATA_PATH=data/data_analysis_data/converted_cases/kca_finance_insurance_cases_filtered.json
+```
+
 ## 🧠 HyDE / Reverse HyDE 설정
 
 ```bash

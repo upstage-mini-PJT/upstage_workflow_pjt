@@ -4,6 +4,7 @@ onboarding_agent 전용 테스트 그래프.
 """
 
 import argparse
+import json
 import os
 from pathlib import Path
 import sys
@@ -160,6 +161,57 @@ def _resolve_join_date(arg_value: str) -> str:
         join_date = ""
 
 
+def _load_mock_manifest() -> dict[str, str]:
+    manifest_path = str(
+        os.getenv(
+            "ONBOARDING_MOCK_MANIFEST",
+            "data/mock_documents/hyundai_senior_silson_case/manifest.json",
+        )
+    ).strip()
+    if not manifest_path:
+        return {}
+
+    path = Path(manifest_path)
+    if not path.exists():
+        return {}
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+    raw_map = payload.get("catalog_to_file", {})
+    if not isinstance(raw_map, dict):
+        return {}
+
+    resolved: dict[str, str] = {}
+    for key, value in raw_map.items():
+        doc_id = str(key).strip()
+        doc_path = str(value).strip()
+        if not doc_id or not doc_path:
+            continue
+        resolved[doc_id] = doc_path
+    return resolved
+
+
+def _resolve_mock_resume_paths(
+    required_ids: list[str],
+    fallback_path: str,
+    mock_map: dict[str, str],
+) -> list[str]:
+    if not required_ids:
+        return [fallback_path]
+
+    resolved_paths: list[str] = []
+    for doc_id in required_ids:
+        path = str(mock_map.get(doc_id, "")).strip()
+        if path and Path(path).exists():
+            resolved_paths.append(path)
+        else:
+            resolved_paths.append(fallback_path)
+    return resolved_paths
+
+
 
 
 # 2. 실행 로직 (전처리 + 실행)
@@ -194,6 +246,9 @@ if __name__ == "__main__":
         available_policy_dates,
     )
     print(f"--- 🧭 Selected policy_date: {selected_policy_date} ({selection_reason}) ---")
+    mock_manifest_map = _load_mock_manifest()
+    if mock_manifest_map:
+        print(f"--- 🧪 Loaded mock manifest entries: {len(mock_manifest_map)} ---")
 
     # [Step 4: 설정 준비]
     configurable = {
@@ -227,7 +282,13 @@ if __name__ == "__main__":
         interrupt_list = result["__interrupt__"]
         payload = interrupt_list[0].value if interrupt_list else {}
         required = payload.get("required_documents", []) if isinstance(payload, dict) else []
-        mock_document_list = [valid_file_path] * max(len(required), 1)
+        required_ids = payload.get("required_document_ids", []) if isinstance(payload, dict) else []
+        normalized_required_ids = [str(item).strip() for item in required_ids if str(item).strip()]
+        mock_document_list = _resolve_mock_resume_paths(
+            required_ids=normalized_required_ids,
+            fallback_path=valid_file_path,
+            mock_map=mock_manifest_map,
+        )
         print(f"  [interrupt] 요청 서류: {required} → resume with {len(mock_document_list)}개 mock 경로")
         result = onboarding_graph.invoke(
             Command(resume=mock_document_list),

@@ -4,8 +4,28 @@ Upstage Document Parse(DP)를 사용해 파일을 텍스트로 파싱.
 """
 
 from pathlib import Path
+
 from langchain_upstage import UpstageDocumentParseLoader
 from langchain_upstage.document_parse_parsers import OutputFormat
+
+
+_LOCAL_TEXT_EXTENSIONS = {
+    ".md",
+    ".markdown",
+    ".txt",
+    ".json",
+    ".yaml",
+    ".yml",
+    ".csv",
+    ".tsv",
+}
+
+
+def _read_local_text(path: Path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return path.read_text(encoding="utf-8", errors="replace")
 
 
 def parse_document(file_path: str) -> str:
@@ -22,7 +42,10 @@ def parse_document(file_path: str) -> str:
     if not path.exists():
         raise FileNotFoundError(f"파일을 찾을 수 없습니다: {file_path}")
 
-    
-    loader = UpstageDocumentParseLoader(str(path), ocr = 'auto', output_format = "markdown")
+    # Markdown/Text fixture files are consumed locally instead of DP API.
+    if path.suffix.lower() in _LOCAL_TEXT_EXTENSIONS:
+        return _read_local_text(path)
+
+    loader = UpstageDocumentParseLoader(str(path), ocr="auto", output_format="markdown")
     docs = loader.load()
     return "\n\n".join(doc.page_content for doc in docs)

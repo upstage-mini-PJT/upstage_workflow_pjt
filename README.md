@@ -117,20 +117,130 @@ Step3는 3개의 JSON 출력을 생성합니다:
 ### 환경 설정
 
 ```bash
-# Python 3.9+ 필요
+# Python 3.13 권장 (Chroma 안정 실행)
 python -m venv .venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
+source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 
-# 의존성 설치
-pip install -r requirements.txt
+# 의존성 설치 (pyproject.toml 기준)
+pip install -e .
 ```
 
 ### 실행
 
 ```bash
-# Step3 에이전트 실행
-python main.py --input structured_case.json --output analysis_result.json
+# 파이프라인 실행 예시 (langgraph 필요)
+python -c "from agents.data_analysis_agent.pipeline import run_pipeline; print(run_pipeline({}))"
 ```
+
+## 🔗 RAG v1 실행 순서
+
+1. Raw 문서를 `normalize_ingestion_doc(s)`로 `IngestionDoc`으로 정규화
+2. `chunk_ingestion_doc(s)`로 `VectorChunk` 생성
+3. `embed_chunks()`로 임베딩 생성
+4. `InMemoryVectorIndexStore` 또는 `ChromaVectorIndexStore`로 인덱스 적재
+5. `VectorRetriever.retrieve()`로 `RAGRetrievalResult` 생성
+6. `rerank_retrieval_result()`로 재정렬 점수 적용
+7. `compute_comparative_scoring()`으로 `scoring_trace` 계산
+
+## ⚙️ Chroma 사용 설정
+
+```bash
+export RAG_VECTOR_BACKEND=chroma
+export RAG_CHROMA_DIR=.chroma_db
+export RAG_INDEX_NAME=step3_rag_index
+```
+
+- 기본값은 `inmemory`
+- Chroma 실행 시 Python 3.14는 비호환 이슈가 있어 3.13 권장
+
+## 📚 KCA 분쟁사례 데이터 연동
+
+- 반입 경로:
+  - `data/data_analysis_data/converted_cases/kca_finance_insurance_cases_all.json`
+- 보험 필터 결과:
+  - `data/data_analysis_data/converted_cases/kca_finance_insurance_cases_filtered.json`
+- 검색 소스 연동 기본값:
+  - `RAG_INCLUDE_KCA=true`
+
+```bash
+# KCA 소스 끄기
+export RAG_INCLUDE_KCA=false
+
+# KCA 데이터 파일 경로 커스텀
+export RAG_KCA_DATA_PATH=data/data_analysis_data/converted_cases/kca_finance_insurance_cases_filtered.json
+```
+
+## 🧠 HyDE / Reverse HyDE 설정
+
+```bash
+# 검색 모드: plain | hyde | reverse_hyde | hybrid_hyde
+export RAG_RETRIEVAL_MODE=hybrid_hyde
+
+# HyDE 생성 on/off (민감정보 마스킹 포함)
+export RAG_ENABLE_HYDE=true
+```
+
+- `plain`: 원문 쿼리만 사용
+- `hyde`: 가설 문서(질문 확장) 기반 검색
+- `reverse_hyde`: 1차 검색 결과를 바탕으로 재질의 생성 후 검색
+- `hybrid_hyde`: `plain + hyde + reverse_hyde` 융합
+
+모드 비교 리포트 생성:
+
+```bash
+PYTHONPATH=. uv run python evaluations/data_analysis/run_hyde_mode_comparison.py
+```
+
+생성 파일:
+- `evaluations/data_analysis/hyde_mode_comparison.json`
+- `evaluations/data_analysis/hyde_mode_comparison.md`
+
+## 🧮 2단계 점수 구조 (판례 1차 + 사례 2차)
+
+- 1차: `CASELAW`만 사용해 `precedent_score` 계산
+- 2차: `DISPUTE`만 사용해 `case_adjustment` 계산
+- 보정 우선순위:
+  - LLM 성공 시 LLM 보정
+  - LLM 실패 시 휴리스틱 fallback
+  - fallback 정책이 `zero`면 0점 보정
+
+```bash
+# 사례 보정 LLM 사용 여부
+export RAG_ENABLE_LLM_ADJUSTMENT=true
+
+# LLM 실패 시 fallback 정책: heuristic | zero
+export RAG_ADJUSTMENT_FALLBACK=heuristic
+```
+
+- 가드레일:
+  - `cited_case_ids` 최소 1개 필수
+  - cited id는 실제 DISPUTE 검색 결과 doc_id와 일치해야 반영
+  - 불일치/누락 시 보정 무효(0점)
+
+## 🧪 테스트 실행
+
+```bash
+PYTHONPATH=. uv run pytest -q tests/test_chroma_integration.py tests/test_rag_contract.py tests/test_vector_retriever.py tests/test_comparative_scoring.py tests/test_rag_e2e.py
+```
+
+## 🧩 RAG 모듈 구조
+
+`tools/data_analysis_tools/rag/normalizer.py`  
+`tools/data_analysis_tools/rag/chunker.py`  
+`tools/data_analysis_tools/rag/embedder.py`  
+`tools/data_analysis_tools/rag/index_store.py`  
+`tools/data_analysis_tools/rag/vector_retriever.py`  
+`tools/data_analysis_tools/rag/reranker.py`  
+`tools/data_analysis_tools/rag/search_client.py`  
+`tools/data_analysis_tools/rag/comparative_scoring.py`
+
+## 🛠️ 운영 체크리스트
+
+- 임베딩 모델명 또는 차원(`embedding_dim`)이 바뀌면 기존 인덱스를 폐기하고 전량 재임베딩
+- `chunk_size_tokens`/`chunk_overlap_tokens` 변경 시 인덱스 재생성
+- `source_type`, `doc_id/chunk_id` 규칙 변경 시 기존 데이터 마이그레이션 계획 수립
+- 점수 가드레일(`-15~+15`, `0~100`) 변경 시 비교분석 회귀 테스트 재실행
+- 웹 소스 신뢰도(`publisher_grade`) 정책 변경 시 기존 WEB 문서 메타 재계산
 
 ## 📐 구현 단계
 
@@ -188,9 +298,10 @@ python main.py --input structured_case.json --output analysis_result.json
 
 ## 📖 문서
 
-- **`data_analysis.md`**: Step3 구현 가이드 (원본 요구사항)
-- **`IMPLEMENTATION_PLAN.md`**: 상세 구현 계획
-- **`PLAN_SUMMARY.md`**: 구현 플랜 요약 (빠른 참조용)
+- `RAG_SCHEMA_CONTRACT.md`: Step3 RAG 계약(노드 구조 포함)
+- `data_analysis.md`: Step3 구현 가이드 (원본 요구사항)
+- `IMPLEMENTATION_PLAN.md`: 상세 구현 계획
+- `PLAN_SUMMARY.md`: 구현 플랜 요약
 
 ## ✅ Definition of Done
 
@@ -208,5 +319,5 @@ Step3 구현 완료 기준:
 
 ---
 
-**Last Updated**: 2026-02-11  
-**Status**: Phase 1 완료, Phase 2 진행중
+**Last Updated**: 2026-02-16  
+**Status**: RAG v1 모듈/테스트 브랜치 진행중

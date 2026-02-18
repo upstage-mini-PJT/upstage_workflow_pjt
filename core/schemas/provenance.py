@@ -4,7 +4,7 @@ from typing import Any, Literal, TypedDict
 
 
 class Provenance(TypedDict, total=False):
-    source_type: Literal["caselaw", "dispute_case", "web", "internal_rule"]
+    source_type: Literal["CASELAW", "DISPUTE", "WEB", "INTERNAL_RULE"]
     source_id: str
     title: str
     snippet: str

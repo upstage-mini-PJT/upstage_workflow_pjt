@@ -70,6 +70,16 @@ storage/
 data/
 tmp/
 temp/
+!data/
+!data/data_analysis_data/
+!data/data_analysis_data/converted_cases/
+!data/data_analysis_data/converted_cases/kca_finance_insurance_cases_all.json
+!data/data_analysis_data/converted_cases/law_precedents.json
+!data/data_analysis_data/converted_cases/law_precedents_cleaned.json
+!data/data_analysis_data/converted_cases/law_precedents_followup.json
+!data/data_analysis_data/converted_cases/fss_disputes_cleaned.json
+!data/data_analysis_data/rubrics/
+!data/data_analysis_data/rubrics/success_probability_v1.yml
 
 ########################################
 # Node / React

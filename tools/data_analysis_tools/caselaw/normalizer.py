@@ -12,9 +12,9 @@ def normalize_cases(raw_cases: list[dict[str, Any]]) -> list[CaseLawDoc]:
     now = datetime.now(tz=timezone.utc).isoformat()
 
     for raw in raw_cases:
-        source_type = raw.get("source_type", "caselaw")
+        source_type = str(raw.get("source_type", "CASELAW")).upper()
         provenance = Provenance(
-            source_type="dispute_case" if source_type == "dispute_case" else "caselaw",
+            source_type="DISPUTE" if source_type == "DISPUTE" else "CASELAW",
             source_id=str(raw.get("doc_id", "unknown")),
             title=str(raw.get("title", "")),
             snippet=str(raw.get("summary", ""))[:280],
@@ -30,7 +30,7 @@ def normalize_cases(raw_cases: list[dict[str, Any]]) -> list[CaseLawDoc]:
                 result=str(raw.get("result", "")),
                 keywords=[str(x) for x in raw.get("keywords", [])],
                 source=str(raw.get("source", "unknown")),
-                source_type="dispute_case" if source_type == "dispute_case" else "caselaw",
+                source_type="DISPUTE" if source_type == "DISPUTE" else "CASELAW",
                 provenance=[provenance],
             )
         )

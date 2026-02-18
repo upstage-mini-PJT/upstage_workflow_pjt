@@ -1,0 +1,211 @@
+# 재심의 성공 확률 산정 규칙 v1.0
+#
+# 이 파일은 케이스의 feature를 기반으로 재심의 성공 확률을 계산하는 규칙을 정의합니다.
+# 모든 규칙은 설명 가능성을 보장하며, 각 점수 변동에는 근거가 명시됩니다.
+
+# 기본 점수 (중립 상태)
+base_score: 50
+
+# 점수 산정 규칙
+# condition: feature 조건 (Python 표현식)
+# score_delta: 점수 증감 (-100 ~ +100)
+# driver: 사용자에게 보여줄 설명
+# category: positive | negative (긍정/부정 요인 분류)
+
+rules:
+  # ========================================================================
+  # 긍정 요인 (Positive Drivers)
+  # ========================================================================
+
+  # 판례 관련
+  - condition: "has_similar_precedent == True"
+    score_delta: 25
+    driver: "유사 판례 존재"
+    category: positive
+
+  - condition: "precedent_win_rate > 0.7"
+    score_delta: 15
+    driver: "유사 판례 승소율 높음 (70% 이상)"
+    category: positive
+
+  - condition: "precedent_win_rate > 0.5 and precedent_win_rate <= 0.7"
+    score_delta: 8
+    driver: "유사 판례 승소율 보통 (50-70%)"
+    category: positive
+
+  - condition: "precedent_count >= 5"
+    score_delta: 10
+    driver: "충분한 판례 데이터 확보 (5개 이상)"
+    category: positive
+
+  # 증빙 관련
+  - condition: "evidence_completeness > 0.8"
+    score_delta: 20
+    driver: "증빙 자료 충분"
+    category: positive
+
+  - condition: "evidence_completeness > 0.5 and evidence_completeness <= 0.8"
+    score_delta: 10
+    driver: "증빙 자료 보통"
+    category: positive
+
+  - condition: "has_medical_records == True"
+    score_delta: 12
+    driver: "진료기록 확보"
+    category: positive
+
+  - condition: "has_doctor_note == True"
+    score_delta: 15
+    driver: "의사 소견서 확보"
+    category: positive
+
+  # 절차 관련
+  - condition: "procedural_compliance == True"
+    score_delta: 10
+    driver: "절차 준수"
+    category: positive
+
+  - condition: "timeline_consistency > 0.8"
+    score_delta: 8
+    driver: "타임라인 일관성 높음"
+    category: positive
+
+  # 약관 관련
+  - condition: "policy_clarity < 0.5"
+    score_delta: 18
+    driver: "약관 조항이 모호하여 해석 여지 있음"
+    category: positive
+
+  - condition: "clause_interpretation_favorable == True"
+    score_delta: 15
+    driver: "약관 해석이 사용자에게 유리"
+    category: positive
+
+  # 기타
+  - condition: "has_emergency_situation == True"
+    score_delta: 12
+    driver: "응급 상황으로 의학적 필요성 인정 가능성 높음"
+    category: positive
+
+  - condition: "claim_amount_reasonableness > 0.8"
+    score_delta: 10
+    driver: "청구 금액 합리적"
+    category: positive
+
+  - condition: "denial_reason_strength < 0.5"
+    score_delta: 15
+    driver: "보험사 부지급 사유가 약함"
+    category: positive
+
+  # ========================================================================
+  # 부정 요인 (Negative Drivers)
+  # ========================================================================
+
+  # 판례 관련
+  - condition: "has_similar_precedent == False"
+    score_delta: -15
+    driver: "유사 판례 부족"
+    category: negative
+
+  - condition: "precedent_win_rate < 0.3"
+    score_delta: -20
+    driver: "유사 판례 승소율 낮음 (30% 미만)"
+    category: negative
+
+  - condition: "precedent_count < 2"
+    score_delta: -10
+    driver: "판례 데이터 부족"
+    category: negative
+
+  # 증빙 관련
+  - condition: "evidence_completeness < 0.3"
+    score_delta: -25
+    driver: "증빙 자료 부족"
+    category: negative
+
+  - condition: "has_medical_records == False"
+    score_delta: -15
+    driver: "진료기록 미확보"
+    category: negative
+
+  - condition: "has_doctor_note == False"
+    score_delta: -12
+    driver: "의사 소견서 미확보"
+    category: negative
+
+  # 절차 관련
+  - condition: "procedural_compliance == False"
+    score_delta: -30
+    driver: "절차적 하자"
+    category: negative
+
+  - condition: "timeline_consistency < 0.5"
+    score_delta: -15
+    driver: "타임라인 불일치"
+    category: negative
+
+  # 약관 관련
+  - condition: "policy_clarity > 0.8"
+    score_delta: -10
+    driver: "약관 조항이 명확하여 해석 여지 적음"
+    category: negative
+
+  - condition: "clause_interpretation_favorable == False"
+    score_delta: -12
+    driver: "약관 해석이 보험사에 유리"
+    category: negative
+
+  # 기타
+  - condition: "claim_amount_reasonableness < 0.3"
+    score_delta: -15
+    driver: "청구 금액 과다"
+    category: negative
+
+  - condition: "denial_reason_strength > 0.7"
+    score_delta: -20
+    driver: "보험사 부지급 사유가 강력함"
+    category: negative
+
+  - condition: "fact_count < 2"
+    score_delta: -10
+    driver: "사실 관계 기록 부족"
+    category: negative
+
+# ========================================================================
+# 점수 밴드 정의
+# ========================================================================
+bands:
+  LOW:
+    min: 0
+    max: 39
+    description: "재심의 성공 가능성 낮음"
+
+  MEDIUM:
+    min: 40
+    max: 69
+    description: "재심의 성공 가능성 보통"
+
+  HIGH:
+    min: 70
+    max: 100
+    description: "재심의 성공 가능성 높음"
+
+# ========================================================================
+# 가정 사항 템플릿
+# ========================================================================
+# 점수 산정 시 항상 포함되는 가정 사항들
+assumptions:
+  - "추가 증빙 자료가 확보된다는 가정"
+  - "판례의 사실관계가 본 케이스와 유사하다는 가정"
+  - "약관 해석이 일관되게 적용된다는 가정"
+  - "재심의 과정에서 새로운 사실이 발견되지 않는다는 가정"
+  - "본 분석은 참고 자료이며, 법률 자문이 아님"
+
+# ========================================================================
+# 메타데이터
+# ========================================================================
+metadata:
+  version: "1.0"
+  created_at: "2026-02-11"
+  description: "보험금 부지급 재심의 성공 확률 산정 규칙"
+  author: "Step3 Data Analysis Team"

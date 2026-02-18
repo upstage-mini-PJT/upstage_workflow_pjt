@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from functools import lru_cache
+import os
+from pathlib import Path
 from typing import Any
 
+from tools.data_analysis_tools.caselaw.json_source_loader import (
+    load_fss_disputes,
+    load_precedent_cases,
+)
+from tools.data_analysis_tools.caselaw.kca_loader import load_normalized_kca_disputes
 from tools.data_analysis_tools.caselaw.types import RetrievalQuery
 
 
@@ -15,7 +23,7 @@ MOCK_CASELAW: list[dict[str, Any]] = [
         "result": "원고 일부 승소",
         "keywords": ["부지급", "입원", "의학적 필요성", "약관 해석"],
         "source": "caselaw_sample",
-        "source_type": "caselaw",
+        "source_type": "CASELAW",
     },
     {
         "doc_id": "CASE-002",
@@ -25,7 +33,7 @@ MOCK_CASELAW: list[dict[str, Any]] = [
         "result": "원고 승소",
         "keywords": ["면책조항", "입증책임", "보험사"],
         "source": "caselaw_sample",
-        "source_type": "caselaw",
+        "source_type": "CASELAW",
     },
     {
         "doc_id": "CASE-003",
@@ -35,7 +43,7 @@ MOCK_CASELAW: list[dict[str, Any]] = [
         "result": "원고 일부 승소",
         "keywords": ["진단코드", "의무기록", "재심의"],
         "source": "caselaw_sample",
-        "source_type": "caselaw",
+        "source_type": "CASELAW",
     },
 ]
 
@@ -48,7 +56,7 @@ MOCK_DISPUTE_CASES: list[dict[str, Any]] = [
         "result": "조정 성립",
         "keywords": ["분쟁조정", "입원 필요성", "진단서"],
         "source": "dispute_case_sample",
-        "source_type": "dispute_case",
+        "source_type": "DISPUTE",
     },
     {
         "doc_id": "DISPUTE-002",
@@ -58,9 +66,14 @@ MOCK_DISPUTE_CASES: list[dict[str, Any]] = [
         "result": "일부 인용",
         "keywords": ["분쟁조정", "면책조항", "약관 해석"],
         "source": "dispute_case_sample",
-        "source_type": "dispute_case",
+        "source_type": "DISPUTE",
     },
 ]
+
+
+DEFAULT_KCA_FILTERED_PATH = Path(
+    "data/data_analysis_data/converted_cases/kca_finance_insurance_cases_filtered.json"
+)
 
 
 def retrieve_cases(queries: list[RetrievalQuery], limit: int = 20) -> list[dict[str, Any]]:
@@ -71,8 +84,11 @@ def retrieve_cases(queries: list[RetrievalQuery], limit: int = 20) -> list[dict[
     out: list[dict[str, Any]] = []
 
     for query in queries:
-        source = query.get("source", "caselaw")
-        pool = MOCK_CASELAW if source == "caselaw" else MOCK_DISPUTE_CASES
+        source = str(query.get("source", "CASELAW")).upper()
+        if source == "CASELAW":
+            pool = _build_precedent_pool()
+        else:
+            pool = _build_dispute_pool()
         for doc in pool:
             copied = dict(doc)
             copied["retrieved_at"] = now
@@ -82,3 +98,54 @@ def retrieve_cases(queries: list[RetrievalQuery], limit: int = 20) -> list[dict[
     for row in out:
         dedup[row.get("doc_id", "")] = row
     return list(dedup.values())[:limit]
+
+
+def _build_dispute_pool() -> list[dict[str, Any]]:
+    pool = list(MOCK_DISPUTE_CASES)
+
+    if _is_fss_enabled():
+        fss_rows = _load_fss_pool()
+        if fss_rows:
+            pool = fss_rows
+
+    if _is_kca_enabled():
+        pool = pool + _load_kca_disputes()
+
+    return pool
+
+
+def _build_precedent_pool() -> list[dict[str, Any]]:
+    if not _is_precedent_enabled():
+        return MOCK_CASELAW
+    rows = _load_precedent_pool()
+    if not rows:
+        return MOCK_CASELAW
+    return rows
+
+
+def _is_precedent_enabled() -> bool:
+    return os.getenv("RAG_INCLUDE_PRECEDENTS", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_fss_enabled() -> bool:
+    return os.getenv("RAG_INCLUDE_FSS", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_kca_enabled() -> bool:
+    return os.getenv("RAG_INCLUDE_KCA", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+@lru_cache(maxsize=1)
+def _load_precedent_pool() -> list[dict[str, Any]]:
+    return load_precedent_cases()
+
+
+@lru_cache(maxsize=1)
+def _load_fss_pool() -> list[dict[str, Any]]:
+    return load_fss_disputes()
+
+
+@lru_cache(maxsize=1)
+def _load_kca_disputes() -> list[dict[str, Any]]:
+    data_path = Path(os.getenv("RAG_KCA_DATA_PATH", str(DEFAULT_KCA_FILTERED_PATH)))
+    return load_normalized_kca_disputes(path=data_path, insurance_only=False)

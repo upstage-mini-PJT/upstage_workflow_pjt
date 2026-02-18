@@ -13,6 +13,10 @@ def _tokenize(text: str) -> set[str]:
     return {tok for tok in re.split(r"\W+", text.lower()) if tok}
 
 
+def _clamp01(v: float) -> float:
+    return max(0.0, min(1.0, float(v)))
+
+
 def rank_cases(
     cases: list[CaseLawDoc],
     structured_case: StructuredCase,
@@ -44,7 +48,7 @@ def rank_cases(
         base = overlap / denominator
         result_text = doc.get("result", "")
         win_boost = 0.08 if any(hint in result_text for hint in WIN_HINTS) else 0.0
-        score = round(min(1.0, base + win_boost), 4)
+        score = round(_clamp01(base + win_boost), 4)
 
         ranked.append(
             RankedCaseLawDoc(
@@ -55,12 +59,16 @@ def rank_cases(
                 result=doc.get("result", ""),
                 keywords=doc.get("keywords", []),
                 source=doc.get("source", ""),
-                source_type=doc.get("source_type", "caselaw"),
+                source_type=doc.get("source_type", "CASELAW"),
+                published_at=doc.get("published_at", ""),
+                url=doc.get("url", ""),
                 provenance=doc.get("provenance", []),
                 relevance_score=score,
+                score=score,
+                rerank_score=score,
                 matched_keywords=matched_tokens,
             )
         )
 
-    ranked.sort(key=lambda x: x.get("relevance_score", 0.0), reverse=True)
+    ranked.sort(key=lambda x: _clamp01(x.get("rerank_score", x.get("score", x.get("relevance_score", 0.0)))), reverse=True)
     return ranked[:top_k]

@@ -60,7 +60,7 @@ def chunk_policy(file_path: str, policy_date: str, policy_title: str) -> list:
         markdown_document = f.read()
 
     headers_to_split_on = [
-        ("#", "Dcoument"),
+        ("#", "Document"),
         ("##", "Document Section"),
         ("###", "Article"),
     ]

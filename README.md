@@ -117,7 +117,7 @@ Step3는 3개의 JSON 출력을 생성합니다:
 ### 환경 설정
 
 ```bash
-# Python 3.11+ 권장
+# Python 3.13 권장 (Chroma 안정 실행)
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 
@@ -137,10 +137,27 @@ python -c "from agents.data_analysis_agent.pipeline import run_pipeline; print(r
 1. Raw 문서를 `normalize_ingestion_doc(s)`로 `IngestionDoc`으로 정규화
 2. `chunk_ingestion_doc(s)`로 `VectorChunk` 생성
 3. `embed_chunks()`로 임베딩 생성
-4. `InMemoryVectorIndexStore.upsert()`로 인덱스 적재
+4. `InMemoryVectorIndexStore` 또는 `ChromaVectorIndexStore`로 인덱스 적재
 5. `VectorRetriever.retrieve()`로 `RAGRetrievalResult` 생성
 6. `rerank_retrieval_result()`로 재정렬 점수 적용
 7. `compute_comparative_scoring()`으로 `scoring_trace` 계산
+
+## ⚙️ Chroma 사용 설정
+
+```bash
+export RAG_VECTOR_BACKEND=chroma
+export RAG_CHROMA_DIR=.chroma_db
+export RAG_INDEX_NAME=step3_rag_index
+```
+
+- 기본값은 `inmemory`
+- Chroma 실행 시 Python 3.14는 비호환 이슈가 있어 3.13 권장
+
+## 🧪 테스트 실행
+
+```bash
+PYTHONPATH=. uv run pytest -q tests/test_chroma_integration.py tests/test_rag_contract.py tests/test_vector_retriever.py tests/test_comparative_scoring.py tests/test_rag_e2e.py
+```
 
 ## 🧩 RAG 모듈 구조
 

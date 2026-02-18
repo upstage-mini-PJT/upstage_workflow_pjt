@@ -236,3 +236,15 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
 | Web 정규화/중복제거 | `tools/data_analysis_tools/rag/search_client.py` | `search_web_docs`, `normalize_web_results` |
 | Comparative Scoring | `tools/data_analysis_tools/rag/comparative_scoring.py` | `compute_comparative_scoring` |
 | Pipeline 연동 | `agents/data_analysis_agent/pipeline.py` | `_normalize_rank_node`, `_score_adjustment_node` |
+
+---
+
+## 10) Chroma 연동 메모
+- 벡터 저장소 백엔드:
+  - `inmemory` (기본)
+  - `chroma` (`RAG_VECTOR_BACKEND=chroma`)
+- Chroma 영속 경로: `RAG_CHROMA_DIR` (기본 `.chroma_db`)
+- 인덱스명: `RAG_INDEX_NAME` (기본 `step3_rag_index`)
+- 운영 주의:
+  - Python 3.14 환경에서는 Chroma 의존성 이슈가 발생할 수 있어 Python 3.13 권장
+  - `embedding_model`, `embedding_dim`, 청킹 정책이 바뀌면 인덱스 재생성 및 재임베딩 수행

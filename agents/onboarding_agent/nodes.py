@@ -706,6 +706,25 @@ def _mask_pii_text(text: str) -> str:
     return masked
 
 
+def _to_plain_language(text: str) -> str:
+    simplified = str(text or "").strip()
+    if not simplified:
+        return simplified
+    replacements = [
+        ("면책", "보상 제외(면책)"),
+        ("보장 요건", "보험금을 받기 위한 조건"),
+        ("자기부담금", "본인이 내야 하는 금액(자기부담금)"),
+        ("비급여", "건강보험 미적용 항목(비급여)"),
+        ("인과관계", "원인과 결과의 연결"),
+        ("지급 불가", "보험금 지급이 어려움"),
+        ("지급거절", "보험금 지급 거절"),
+    ]
+    for source, target in replacements:
+        simplified = simplified.replace(source, target)
+    simplified = re.sub(r"\s+", " ", simplified)
+    return simplified
+
+
 def _compose_user_friendly_explanation(
     *,
     user_situation: str,
@@ -716,40 +735,46 @@ def _compose_user_friendly_explanation(
     llm_plain_explanation: str = "",
 ) -> str:
     lines: list[str] = []
-    lines.append("1) 현재 상황")
-    lines.append(f"- {user_situation or '(요약 정보 없음)'}")
+    lines.append("1) 지금 상황")
+    lines.append(f"- {_to_plain_language(user_situation) or '(요약 정보 없음)'}")
 
     lines.append("2) 보험사 판단")
-    lines.append(f"- {insurer_claim or '(보험사 주장 정보 없음)'}")
+    lines.append(f"- {_to_plain_language(insurer_claim) or '(보험사 주장 정보 없음)'}")
 
     lines.append("3) 약관 근거")
     if policy_clauses:
         for idx, clause in enumerate(policy_clauses[:3], start=1):
             title = str(clause.get("title", "")).strip() or "(조항 제목 없음)"
             snippet = str(clause.get("snippet", "")).strip() or "(요약 없음)"
-            lines.append(f"- [{idx}] {title}: {snippet}")
+            lines.append(f"- [{idx}] {title}: {_to_plain_language(snippet)}")
     else:
         lines.append("- 약관 근거가 충분히 확인되지 않았습니다.")
 
-    lines.append("4) 문서 근거")
+    lines.append("4) 문서에서 확인된 사실")
     if document_evidence:
         for item in document_evidence[:3]:
             src = int(item.get("source_index", 0) or 0)
             key_data = str(item.get("key_data", "")).strip() or "(핵심 데이터 없음)"
             evidence = str(item.get("evidence", "")).strip() or "(근거 없음)"
-            lines.append(f"- [문서 {src}] 핵심={key_data} / 근거={evidence}")
+            lines.append(
+                f"- [문서 {src}] 핵심={_to_plain_language(key_data)} / 근거={_to_plain_language(evidence)}"
+            )
     else:
         lines.append("- 추가 문서 근거가 충분하지 않습니다.")
 
-    lines.append("5) 결론")
-    lines.append(f"- {conclusion_reason or '(결론 근거 없음)'}")
+    lines.append("5) 한 줄 결론")
+    lines.append(f"- {_to_plain_language(conclusion_reason) or '(결론 근거 없음)'}")
 
     lines.append("6) 다음 단계")
-    lines.append("- 약관 조항과 제출 문서를 1:1로 대조해 이의신청 포인트를 정리하세요.")
+    lines.append("- 약관 조항과 제출 문서를 하나씩 맞춰 보면서 이의신청 포인트를 정리하세요.")
 
     if llm_plain_explanation.strip():
         lines.append("7) 쉬운 설명")
-        lines.append(f"- {llm_plain_explanation.strip()}")
+        lines.append(f"- {_to_plain_language(llm_plain_explanation.strip())}")
+
+    lines.append("8) 안내")
+    lines.append("- 이 설명은 AI가 만든 참고용 답변입니다.")
+    lines.append("- 최종 판단과 결정의 책임은 사용자와 담당 전문가에게 있습니다.")
 
     return "\n".join(lines)
 
@@ -864,11 +889,12 @@ def _build_decision_explanation_prompt(
 1) 보험사 주장(insurer_claim)과 사용자 상황(user_situation)을 먼저 분리해 적으세요.
 2) 약관 근거(policy_clauses)는 최대 3개만 고르고, 각 항목은 제목+짧은 요약(snippet)으로 작성하세요.
 3) 문서 근거(document_evidence)는 최대 3개만 고르고, source_index는 1부터 시작하세요.
-4) plain_explanation은 짧은 문장 위주로 8~12문장, 중학생도 이해할 수 있게 쉬운 말로 작성하세요.
+4) plain_explanation은 한 문장 길이를 짧게 쓰고, 어려운 용어는 괄호로 쉬운 뜻을 붙여 설명하세요.
 5) plain_explanation 안에 반드시 '약관 근거'를 명시하고, 실제 조항 제목을 1개 이상 인용하세요.
 6) 이름/계약번호/전화번호/이메일 등 개인정보는 원문 그대로 쓰지 말고 마스킹 형태로 표현하세요.
 7) 결론은 '현재 확보된 자료 기준'이라는 전제를 포함하세요.
-8) 근거가 부족하면 confidence를 low로 두세요.
+8) 마지막에 '이 설명은 참고용이며 최종 결정 책임은 사람에게 있다'는 취지의 안내를 한 줄 포함하세요.
+9) 근거가 부족하면 confidence를 low로 두세요.
 """
 
 

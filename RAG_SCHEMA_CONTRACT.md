@@ -104,6 +104,8 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
   "RAGRetrievalResult": {
     "query_id": "string",
     "query": "string",
+    "retrieval_mode": "plain|hyde|reverse_hyde|hybrid_hyde",
+    "query_variants": ["string"],
     "filters": {},
     "items": [
       {
@@ -119,7 +121,8 @@ Step3에서 팀 간 연동을 위해 아래 3개 구간의 데이터 계약을 �
         "provenance": {
           "index_name": "string",
           "retrieved_at": "ISO-8601",
-          "retrieval_method": "vector|keyword|hybrid"
+          "retrieval_method": "vector|keyword|hybrid|vector_plain|vector_hyde|vector_reverse_hyde",
+          "query_variant": "string"
         }
       }
     ],

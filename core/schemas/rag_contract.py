@@ -4,7 +4,15 @@ from typing import Any, Literal, TypedDict
 
 
 SourceType = Literal["CASELAW", "DISPUTE", "WEB"]
-RetrievalMethod = Literal["vector", "keyword", "hybrid"]
+RetrievalMethod = Literal[
+    "vector",
+    "keyword",
+    "hybrid",
+    "vector_plain",
+    "vector_hyde",
+    "vector_reverse_hyde",
+]
+RetrievalMode = Literal["plain", "hyde", "reverse_hyde", "hybrid_hyde"]
 RiskLevel = Literal["CONSERVATIVE", "BALANCED", "AGGRESSIVE"]
 OutputStyle = Literal["USER_READABLE", "EXPERT_LIKE"]
 NodeType = Literal[
@@ -63,6 +71,7 @@ class RetrievalProvenance(TypedDict, total=False):
     index_name: str
     retrieved_at: str
     retrieval_method: RetrievalMethod
+    query_variant: str
 
 
 class RAGItem(TypedDict, total=False):
@@ -87,6 +96,8 @@ class RetrievalStats(TypedDict, total=False):
 class RAGRetrievalResult(TypedDict, total=False):
     query_id: str
     query: str
+    retrieval_mode: RetrievalMode
+    query_variants: list[str]
     filters: dict[str, Any]
     items: list[RAGItem]
     tree: TreeNode

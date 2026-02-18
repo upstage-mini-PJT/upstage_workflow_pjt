@@ -74,6 +74,8 @@ chroma_*/
 data/*
 !data/policies/
 !data/policies/*.md
+!data/mock_documents/
+!data/mock_documents/**
 tmp/
 temp/
 

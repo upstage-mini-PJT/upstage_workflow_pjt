@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -27,6 +28,7 @@ from tools.data_analysis_tools.caselaw.ranker import rank_cases
 from tools.data_analysis_tools.caselaw.types import CaseLawDoc, RankedCaseLawDoc, RetrievalQuery
 from tools.data_analysis_tools.rag import (
     ChunkingConfig,
+    ChromaVectorIndexStore,
     ComparativeScoringInput,
     HashingEmbedder,
     InMemoryVectorIndexStore,
@@ -100,7 +102,7 @@ def _normalize_rank_node(state: DataAnalysisState) -> DataAnalysisState:
         ),
     )
     vectors = embed_chunks(chunks, embedder)
-    index_store = InMemoryVectorIndexStore(index_name="step3_rag_index")
+    index_store = _build_vector_index_store()
     index_store.upsert(chunks, vectors)
 
     retriever = VectorRetriever(index_store=index_store, embedder=embedder)
@@ -114,6 +116,15 @@ def _normalize_rank_node(state: DataAnalysisState) -> DataAnalysisState:
     )
     rag_result = RAGRetrievalResult(**rerank_retrieval_result(retrieved))
     return {"normalized_cases": normalized, "ranked_cases": ranked, "rag_result": rag_result}
+
+
+def _build_vector_index_store() -> Any:
+    backend = os.getenv("RAG_VECTOR_BACKEND", "inmemory").strip().lower()
+    index_name = os.getenv("RAG_INDEX_NAME", "step3_rag_index").strip() or "step3_rag_index"
+    if backend == "chroma":
+        persist_dir = os.getenv("RAG_CHROMA_DIR", ".chroma_db").strip() or ".chroma_db"
+        return ChromaVectorIndexStore(index_name=index_name, persist_directory=persist_dir)
+    return InMemoryVectorIndexStore(index_name=index_name)
 
 
 def _issue_analysis_node(state: DataAnalysisState) -> DataAnalysisState:

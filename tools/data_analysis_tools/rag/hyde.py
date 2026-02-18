@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+import re
 from typing import Protocol
 
 
@@ -14,6 +16,7 @@ class HyDEConfig:
     max_chars: int = 700
     include_open_questions: bool = True
     reverse_max_items: int = 5
+    max_open_questions: int = 2
 
 
 def generate_hypothetical_doc(
@@ -26,10 +29,12 @@ def generate_hypothetical_doc(
     clean_query = query.strip()
     if not clean_query:
         raise ValueError("query must not be empty")
+    if not _is_hyde_enabled():
+        return _truncate(_mask_sensitive(clean_query), cfg.max_chars)
 
     prompt = _build_hyde_prompt(clean_query, structured_case, cfg)
     if generator is None:
-        return _truncate(_build_local_hypothesis(clean_query, structured_case, cfg), cfg.max_chars)
+        return _truncate(_mask_sensitive(_build_local_hypothesis(clean_query, structured_case, cfg)), cfg.max_chars)
 
     try:
         generated = generator.generate(prompt).strip()
@@ -37,15 +42,15 @@ def generate_hypothetical_doc(
         generated = ""
 
     if not generated:
-        return _truncate(_build_local_hypothesis(clean_query, structured_case, cfg), cfg.max_chars)
-    return _truncate(generated, cfg.max_chars)
+        return _truncate(_mask_sensitive(_build_local_hypothesis(clean_query, structured_case, cfg)), cfg.max_chars)
+    return _truncate(_mask_sensitive(generated), cfg.max_chars)
 
 
 def _build_hyde_prompt(query: str, structured_case: dict, cfg: HyDEConfig) -> str:
     reasons = ", ".join([str(x) for x in structured_case.get("denial_reasons", [])])
     clauses = ", ".join([str(x) for x in structured_case.get("policy_clauses", [])])
     summary = str(structured_case.get("denial_summary", ""))
-    open_questions = ", ".join([str(x) for x in structured_case.get("open_questions", [])])
+    open_questions = ", ".join([str(x) for x in structured_case.get("open_questions", [])[: cfg.max_open_questions]])
 
     base = (
         "아래 사건을 근거로 판례 검색용 가설 문서를 한국어로 4~6문장 작성하세요. "
@@ -80,7 +85,11 @@ def _build_local_hypothesis(query: str, structured_case: dict, cfg: HyDEConfig) 
         lines.append(f"핵심 증빙으로는 {', '.join(evidence_titles[:3])} 등이 존재하며 사실관계 보강의 근거가 된다.")
 
     if cfg.include_open_questions:
-        open_questions = [str(x).strip() for x in structured_case.get("open_questions", []) if str(x).strip()]
+        open_questions = [
+            str(x).strip()
+            for x in structured_case.get("open_questions", [])[: cfg.max_open_questions]
+            if str(x).strip()
+        ]
         if open_questions:
             lines.append(f"추가 검토 포인트는 {', '.join(open_questions[:2])}이며 유사 판례의 판단기준과 비교가 필요하다.")
 
@@ -104,20 +113,22 @@ def generate_reverse_hypothesis(
     clean_query = query.strip()
     if not clean_query:
         raise ValueError("query must not be empty")
+    if not _is_hyde_enabled():
+        return _truncate(_mask_sensitive(clean_query), cfg.max_chars)
 
     top_items = retrieved_items[: max(1, cfg.reverse_max_items)]
     prompt = _build_reverse_prompt(clean_query, top_items)
 
     if generator is None:
-        return _truncate(_build_local_reverse_hypothesis(clean_query, top_items), cfg.max_chars)
+        return _truncate(_mask_sensitive(_build_local_reverse_hypothesis(clean_query, top_items)), cfg.max_chars)
 
     try:
         generated = generator.generate(prompt).strip()
     except Exception:
         generated = ""
     if not generated:
-        return _truncate(_build_local_reverse_hypothesis(clean_query, top_items), cfg.max_chars)
-    return _truncate(generated, cfg.max_chars)
+        return _truncate(_mask_sensitive(_build_local_reverse_hypothesis(clean_query, top_items)), cfg.max_chars)
+    return _truncate(_mask_sensitive(generated), cfg.max_chars)
 
 
 def _build_reverse_prompt(query: str, items: list[dict]) -> str:
@@ -152,3 +163,16 @@ def _build_local_reverse_hypothesis(query: str, items: list[dict]) -> str:
         f"주요 요지는 다음과 같다: {short_snippet}. "
         "재검색 시 약관 문언 해석, 부지급 사유별 입증 기준, 사실관계 유사성의 판단 요소를 우선 반영한다."
     )
+
+
+def _is_hyde_enabled() -> bool:
+    return os.getenv("RAG_ENABLE_HYDE", "true").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _mask_sensitive(text: str) -> str:
+    out = text
+    out = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "[EMAIL]", out)
+    out = re.sub(r"\b01[0-9]-?[0-9]{3,4}-?[0-9]{4}\b", "[PHONE]", out)
+    out = re.sub(r"\b\d{6}-\d{7}\b", "[RRN]", out)
+    out = re.sub(r"\b\d{10,}\b", "[NUMBER]", out)
+    return out

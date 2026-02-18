@@ -5,6 +5,8 @@ onboarding_agent용 그래프 노드 정의.
 - workflow/builder.py: 여기서 노드를 import 해서 메인 그래프에 add_node
 """
 
+from typing import Any
+
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
@@ -15,10 +17,99 @@ from agents.onboarding_agent.schemas import (
     DecisionExplanationResponse,
     EvidenceReference,
     ClauseReference,
-    PlanningResponse,
+    FinalPlanningResponse,
+    HyDEQueryResponse,
+    IssuePlanningResponse,
+    QueryIntent,
     ExtractedDocumentInfo,
     SufficiencyResponse,
 )
+
+
+def _llm_from_config(config: RunnableConfig | None):
+    configurable = (config or {}).get("configurable", {})
+    return configurable.get("chat_client")
+
+
+def _invoke_structured_or_fallback(chat_client: Any, schema: Any, prompt: str, fallback: Any):
+    if not chat_client:
+        return fallback
+    try:
+        structured_llm = chat_client.with_structured_output(schema)
+        return structured_llm.invoke([HumanMessage(content=prompt)])
+    except Exception:
+        return fallback
+
+
+def _default_issue_plan(denial_text: str) -> tuple[list[str], list[dict[str, object]]]:
+    seed = (denial_text or "").strip()
+    seed = seed[:220] if seed else "보험금 지급거절 사유 및 약관 근거"
+    return (
+        [
+            "보험사의 지급거절 사유 분류 필요",
+            "보장 요건 및 면책 조항 해당 여부 확인 필요",
+        ],
+        [
+            {
+                "intent": "거절 통지서 직접 근거 조항 확인",
+                "query_seed": seed,
+                "must_keywords": ["지급거절", "면책", "보장"],
+                "priority": 1,
+            },
+            {
+                "intent": "보장 요건/면책 조항 일반 확인",
+                "query_seed": "보험금 지급 요건 및 면책 사유 관련 약관 조항",
+                "must_keywords": ["보장", "요건", "면책"],
+                "priority": 2,
+            },
+        ],
+    )
+
+
+def _normalize_query_plan(items: list[object]) -> list[dict[str, object]]:
+    normalized: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for item in items:
+        if isinstance(item, QueryIntent):
+            raw_intent = item.intent
+            raw_seed = item.query_seed
+            raw_keywords = item.must_keywords
+            raw_priority = item.priority
+        elif isinstance(item, dict):
+            raw_intent = str(item.get("intent", ""))
+            raw_seed = str(item.get("query_seed", ""))
+            raw_keywords = item.get("must_keywords", [])
+            raw_priority = item.get("priority", 3)
+        else:
+            continue
+
+        intent = str(raw_intent).strip() or "약관 확인"
+        query_seed = str(raw_seed).strip()
+        if not query_seed:
+            continue
+        key = query_seed.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        keywords = [str(kw).strip() for kw in (raw_keywords or []) if str(kw).strip()]
+        try:
+            priority = int(raw_priority)
+        except (TypeError, ValueError):
+            priority = 3
+        priority = min(max(priority, 1), 5)
+        normalized.append(
+            {
+                "intent": intent,
+                "query_seed": query_seed[:300],
+                "must_keywords": keywords[:6],
+                "priority": priority,
+            }
+        )
+
+    normalized.sort(key=lambda x: int(x.get("priority", 3)))
+    return normalized
+
 
 def parse_denial_node(state: dict, config: RunnableConfig) -> dict:
     """
@@ -36,17 +127,105 @@ def parse_denial_node(state: dict, config: RunnableConfig) -> dict:
     return {"denial_statement_text": denial_text}
 
 
+def issue_planning_node(state: dict, config: RunnableConfig) -> dict:
+    """
+    입력 텍스트 기반으로 이슈 가설과 검색 계획(query_plan)을 만든다.
+    읽기: denial_statement_text / 쓰기: issue_hypotheses, query_plan
+    """
+    denial_text = str(state.get("denial_statement_text", "")).strip()
+    fallback_hypotheses, fallback_query_plan = _default_issue_plan(denial_text)
+    fallback = IssuePlanningResponse(
+        issue_hypotheses=fallback_hypotheses,
+        query_plan=[QueryIntent(**item) for item in fallback_query_plan],
+    )
+
+    chat_client = _llm_from_config(config)
+    prompt = _build_issue_planning_prompt(denial_text)
+    response = _invoke_structured_or_fallback(chat_client, IssuePlanningResponse, prompt, fallback)
+
+    issue_hypotheses = [str(item).strip() for item in (response.issue_hypotheses or []) if str(item).strip()]
+    if not issue_hypotheses:
+        issue_hypotheses = fallback_hypotheses
+
+    query_plan = _normalize_query_plan(
+        [item.model_dump() if hasattr(item, "model_dump") else item for item in (response.query_plan or [])]
+    )
+    if not query_plan:
+        query_plan = fallback_query_plan
+
+    return {
+        "issue_hypotheses": issue_hypotheses[:6],
+        "query_plan": query_plan[:6],
+    }
+
+
+def _build_issue_planning_prompt(denial_text: str) -> str:
+    return f"""당신은 보험 약관 검색 전략을 세우는 분석가입니다.
+아래 거절 통지서 텍스트를 바탕으로 다음을 JSON으로 생성하세요.
+
+1) issue_hypotheses: 거절 판단에 영향을 준 핵심 이슈 가설(최대 5개)
+2) query_plan: 약관 검색용 질의 계획(최대 4개)
+   - intent: 검색 목적
+   - query_seed: 실제 검색에 넣을 핵심 문장
+   - must_keywords: 결과에서 확인해야 할 핵심 키워드
+   - priority: 1~5
+
+[거절 통지서 텍스트]
+{denial_text[:4000] if denial_text else "(없음)"}
+"""
+
+
+def _build_hyde_query_prompt(denial_text: str, intent: dict[str, object]) -> str:
+    return f"""당신은 보험 약관 검색 쿼리를 만드는 도우미입니다.
+아래 검색 의도와 거절 통지서 내용을 기반으로 약관 검색용 확장 쿼리 2개를 만들어 주세요.
+각 쿼리는 실제 약관 문구를 찾는 데 유리하도록 구체적으로 작성하세요.
+
+[검색 의도]
+intent: {intent.get("intent", "")}
+query_seed: {intent.get("query_seed", "")}
+must_keywords: {intent.get("must_keywords", [])}
+
+[거절 통지서]
+{denial_text[:2500] if denial_text else "(없음)"}
+"""
+
+
+def _generate_hyde_queries(chat_client: Any, denial_text: str, intent: dict[str, object]) -> list[str]:
+    seed = str(intent.get("query_seed", "")).strip()
+    fallback = HyDEQueryResponse(hyde_queries=[seed] if seed else [])
+    prompt = _build_hyde_query_prompt(denial_text, intent)
+    response = _invoke_structured_or_fallback(chat_client, HyDEQueryResponse, prompt, fallback)
+    queries = [str(item).strip() for item in (response.hyde_queries or []) if str(item).strip()]
+    if not queries and seed:
+        queries = [seed]
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        key = query.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(query[:300])
+    return deduped[:2]
+
+
 def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
     """
-    denial_statement_text로 RAG 조회 후 relevant_terms만 state에 채운다.
-    읽기: denial_statement_text, (선택) policy_date
-    쓰기: relevant_terms
+    issue_planning 기반 다중 쿼리로 약관을 조회하고 집계한다.
+    읽기: denial_statement_text, query_plan, policy_date
+    쓰기: relevant_terms, retrieval_queries, retrieval_candidates
     """
-    denial_text = (state.get("denial_statement_text") or "").strip()
+    denial_text = str(state.get("denial_statement_text", "")).strip()
     if not denial_text:
-        return {"relevant_terms": ""}
+        return {
+            "relevant_terms": "",
+            "retrieval_queries": [],
+            "retrieval_candidates": [],
+        }
 
     configurable = (config or {}).get("configurable", {})
+    chat_client = _llm_from_config(config)
     policy_date = (
         str(state.get("policy_date") or "").strip()
         or str(configurable.get("policy_date") or "").strip()
@@ -54,45 +233,143 @@ def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
     )
     policy_vectordb = configurable.get("policy_vectordb")
 
+    _, fallback_query_plan = _default_issue_plan(denial_text)
+    raw_query_plan = list(state.get("query_plan") or fallback_query_plan)
+    query_plan = _normalize_query_plan(raw_query_plan) or fallback_query_plan
+
+    broad_query = f"{denial_text[:260]} 지급거절 약관 근거 보장 요건 면책"
+    retrieval_queries: list[str] = []
+    seen_query_keys: set[str] = set()
+    must_keywords_by_query: list[list[str]] = []
+
+    for item in query_plan[:4]:
+        hyde_queries = _generate_hyde_queries(chat_client, denial_text, item)
+        if not hyde_queries:
+            hyde_queries = [str(item.get("query_seed", "")).strip()]
+        for query in hyde_queries:
+            query = query.strip()
+            if not query:
+                continue
+            key = query.lower()
+            if key in seen_query_keys:
+                continue
+            seen_query_keys.add(key)
+            retrieval_queries.append(query)
+            must_keywords_by_query.append([str(kw).strip() for kw in item.get("must_keywords", []) if str(kw).strip()])
+
+    if broad_query.strip():
+        broad_key = broad_query.strip().lower()
+        if broad_key not in seen_query_keys:
+            seen_query_keys.add(broad_key)
+            retrieval_queries.append(broad_query.strip())
+            must_keywords_by_query.append([])
+
+    retrieval_queries = retrieval_queries[:8]
+    must_keywords_by_query = must_keywords_by_query[: len(retrieval_queries)]
+
     try:
-        from tools.retrieve_terms import ensure_vectordb_ready, retrieve_terms_text
+        from tools.retrieve_terms import (
+            ensure_vectordb_ready,
+            format_candidates_to_terms,
+            merge_candidates_rrf,
+            retrieve_terms_candidates,
+        )
     except Exception:
-        return {"relevant_terms": ""}
+        return {
+            "relevant_terms": "",
+            "retrieval_queries": retrieval_queries,
+            "retrieval_candidates": [],
+        }
 
     try:
         ready_vectordb = ensure_vectordb_ready(policy_vectordb)
-        relevant_terms = retrieve_terms_text(
-            query=denial_text[:3000],
-            policy_date=policy_date,
-            k=5,
-            vectordb=ready_vectordb,
+        candidates_by_query: list[list[dict[str, object]]] = []
+        for query in retrieval_queries:
+            candidates = retrieve_terms_candidates(
+                query=query,
+                policy_date=policy_date,
+                k=5,
+                vectordb=ready_vectordb,
+            )
+            candidates_by_query.append(candidates)
+
+        ranked_candidates = merge_candidates_rrf(
+            candidates_by_query,
+            must_keywords_by_query,
+            rrf_k=60,
+            keyword_bonus=0.2,
+            keyword_bonus_cap=0.8,
         )
+        top_candidates = ranked_candidates[:5]
+        relevant_terms = format_candidates_to_terms(top_candidates, top_n=5)
     except Exception:
+        ranked_candidates = []
         relevant_terms = ""
 
-    return {"relevant_terms": relevant_terms or ""}
+    retrieval_candidates = [
+        {
+            "source_id": item.get("source_id", ""),
+            "title": item.get("title", ""),
+            "snippet": item.get("snippet", ""),
+            "score": float(item.get("score", 0.0)),
+            "matched_keywords": item.get("matched_keywords", []),
+        }
+        for item in ranked_candidates[:8]
+    ]
+    return {
+        "relevant_terms": relevant_terms or "",
+        "retrieval_queries": retrieval_queries,
+        "retrieval_candidates": retrieval_candidates,
+    }
+
+
+def final_planning_node(state: dict, config: RunnableConfig) -> dict:
+    """
+    약관 조회 결과를 반영해 최종 전략과 필요 서류를 확정한다.
+    읽기: denial_statement_text, relevant_terms, issue_hypotheses
+    쓰기: plan, required_documents, final_plan_confidence
+    """
+    denial_text = str(state.get("denial_statement_text", "")).strip()
+    relevant_terms = str(state.get("relevant_terms", "")).strip()
+    issue_hypotheses = list(state.get("issue_hypotheses") or [])
+    retrieval_candidates = list(state.get("retrieval_candidates") or [])
+
+    fallback = FinalPlanningResponse(
+        plan=(
+            "현재 확보된 자료를 기준으로 보험사의 지급거절 사유를 약관과 대조해 핵심 쟁점을 정리했습니다. "
+            "약관 근거와 추가 문서 근거를 함께 확인하며 필요한 보완서류를 우선 수집하는 것이 다음 단계입니다."
+        ),
+        required_documents=[
+            "지급거절 통지서 원문 (거절 사유 원문 확인)",
+            "진단서/소견서 (질병·치료 사실 확인)",
+        ],
+        confidence="low" if not relevant_terms else "medium",
+    )
+
+    chat_client = _llm_from_config(config)
+    prompt = _build_final_planning_prompt(
+        denial_text=denial_text,
+        relevant_terms=relevant_terms,
+        issue_hypotheses=issue_hypotheses,
+        retrieval_candidates=retrieval_candidates,
+    )
+    response = _invoke_structured_or_fallback(chat_client, FinalPlanningResponse, prompt, fallback)
+    required_documents = [str(item).strip() for item in (response.required_documents or []) if str(item).strip()]
+    if not required_documents:
+        required_documents = list(fallback.required_documents)
+
+    return {
+        "plan": str(response.plan).strip() or fallback.plan,
+        "required_documents": required_documents[:5],
+        "final_plan_confidence": response.confidence,
+    }
 
 
 def planning_node(state: dict, config: RunnableConfig) -> dict:
     """
-    denial_statement_text와 relevant_terms를 바탕으로 LLM으로 전략·필요 서류만 생성한다.
-    DP/RAG 호출 없음. 읽기: denial_statement_text, relevant_terms / 쓰기: plan, required_documents
+    Backward-compatible wrapper.
     """
-    denial_text = state.get("denial_statement_text") or ""
-    relevant_terms = state.get("relevant_terms") or ""
-
-    configurable = (config or {}).get("configurable", {})
-    chat_client = configurable.get("chat_client")
-    if not chat_client:
-        return {"plan": "", "required_documents": []}
-
-    structured_llm = chat_client.with_structured_output(PlanningResponse)
-    prompt = _build_planning_prompt(denial_text, relevant_terms)
-    response: PlanningResponse = structured_llm.invoke([HumanMessage(content=prompt)])
-    return {
-        "plan": response.plan,
-        "required_documents": response.required_documents,
-    }
+    return final_planning_node(state, config)
 
 
 def request_additional_documents_node(state: dict, config: RunnableConfig) -> dict:
@@ -123,7 +400,21 @@ def request_additional_documents_node(state: dict, config: RunnableConfig) -> di
 
 
 
-def _build_planning_prompt(denial_text: str, relevant_terms: str) -> str:
+def _build_final_planning_prompt(
+    *,
+    denial_text: str,
+    relevant_terms: str,
+    issue_hypotheses: list[str],
+    retrieval_candidates: list[dict],
+) -> str:
+    hypotheses_text = "\n".join(f"- {item}" for item in issue_hypotheses[:6]) or "- (없음)"
+    candidate_lines = []
+    for idx, item in enumerate(retrieval_candidates[:5], start=1):
+        candidate_lines.append(
+            f"[후보 {idx}] title={item.get('title', '')} / score={item.get('score', 0.0)} / snippet={item.get('snippet', '')}"
+        )
+    candidates_text = "\n".join(candidate_lines) if candidate_lines else "(없음)"
+
     return f"""당신은 보험금 지급 분쟁 대리·상담 경험이 있는 전문가입니다.
 출력 시 거부 사유에 대한 약관·법적 근거를 전략에 반영하고, 서류는 실제 제출 가능한 구체적 명칭(퇴원요약서, 진단서, 소득증명원 등)으로 적어 주세요.
 
@@ -136,6 +427,12 @@ def _build_planning_prompt(denial_text: str, relevant_terms: str) -> str:
 [관련 보험 약관]
 {relevant_terms or "(아직 약관 DB가 연결되지 않았습니다.)"}
 
+[이슈 가설]
+{hypotheses_text}
+
+[검색된 약관 후보 요약]
+{candidates_text}
+
 다음 두 가지를 구조화된 형식으로 작성해 주세요.
 
 1) plan (전략/계획)
@@ -145,6 +442,8 @@ def _build_planning_prompt(denial_text: str, relevant_terms: str) -> str:
 2) required_documents (추가 필요 서류)
 - 전략적인 분쟁 신청을 위해 "추가로" 제출이 필요한 서류만 나열하세요. 이미 거부 명세서에 포함된 자료는 제외합니다.
 - 위 전략에서 필요하다고 판단한 서류만 최대 3개, 각 항목은 "서류명 (목적/키워드)" 형식으로 적고, 서류명은 퇴원요약서·진단서·소득증명원 등 실제 제출 가능한 구체적 명칭을 사용하세요.
+
+추가로 confidence( high / medium / low )를 함께 반환하세요.
 """
 
 def parse_and_extract_node(state: dict, config: RunnableConfig) -> dict:

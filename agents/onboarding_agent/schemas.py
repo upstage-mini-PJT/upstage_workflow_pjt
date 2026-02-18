@@ -17,6 +17,22 @@ class PlanningResponse(BaseModel):
     )
 
 
+class QueryIntent(BaseModel):
+    intent: str = Field(description="검색 의도 요약")
+    query_seed: str = Field(description="검색을 위한 핵심 질의 문장")
+    must_keywords: list[str] = Field(default_factory=list, description="반드시 포함되면 좋은 키워드")
+    priority: int = Field(default=1, ge=1, le=5, description="우선순위(1이 가장 높음)")
+
+
+class IssuePlanningResponse(BaseModel):
+    issue_hypotheses: list[str] = Field(default_factory=list, description="거절사유 가설 목록")
+    query_plan: list[QueryIntent] = Field(default_factory=list, description="RAG 질의 계획")
+
+
+class HyDEQueryResponse(BaseModel):
+    hyde_queries: list[str] = Field(default_factory=list, description="의도별 검색 확장 쿼리")
+
+
 class ExtractedDocumentInfo(BaseModel):
     """parse_and_extract 노드: 문서 하나에서 LLM이 추출한 분쟁 신청에 필요한 정보."""
 
@@ -49,4 +65,10 @@ class DecisionExplanationResponse(BaseModel):
     document_evidence: list[EvidenceReference] = Field(default_factory=list)
     conclusion_reason: str = Field(description="거절 결론에 이른 이유")
     plain_explanation: str = Field(description="사용자에게 직접 보여줄 쉬운 설명문")
+    confidence: Literal["high", "medium", "low"] = Field(default="medium")
+
+
+class FinalPlanningResponse(BaseModel):
+    plan: str = Field(description="약관 근거 반영 최종 전략")
+    required_documents: list[str] = Field(default_factory=list, description="최종 필요 서류")
     confidence: Literal["high", "medium", "low"] = Field(default="medium")

@@ -17,10 +17,17 @@ class OnboardingState(TypedDict, total=False):
     # planning 노드 내부에서 parse_document 결과로 채움 후 사용
     denial_statement_text: str  # DP로 파싱된 거부 명세서 텍스트
 
+    # issue planning 노드 출력
+    issue_hypotheses: list[str]
+    query_plan: list[dict]
+    retrieval_queries: list[str]
+    retrieval_candidates: list[dict]
+
     # planning 노드 출력
     relevant_terms: str  # RAG로 가져온 관련 보험 약관
     plan: str  # 분쟁신청을 위한 전략/계획
     required_documents: list[str]  # 추가로 필요한 서류 목록 (다음 노드에서 수집)
+    final_plan_confidence: str
 
     # request_additional_documents 노드: interrupt 후 resume으로 받은 경로
     additional_document_paths: list[str]

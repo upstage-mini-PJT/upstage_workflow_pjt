@@ -3,9 +3,7 @@ onboarding_agent 전용 테스트 그래프.
 노드는 agents/onboarding_agent/nodes.py 에서 import.
 """
 
-from agents.onboarding_agent.state import OnboardingState
-
-
+import os
 from pathlib import Path
 from dotenv import load_dotenv
 from langgraph.graph import START, END, StateGraph
@@ -19,8 +17,9 @@ from langgraph.checkpoint.memory import MemorySaver
 from tools.retrieve_terms import ensure_vectordb_ready, load_vectordb, vectordb_document_count
 from .nodes import (
     parse_denial_node,
+    issue_planning_node,
     retrieve_terms_node,
-    planning_node,
+    final_planning_node,
     request_additional_documents_node,
     parse_and_extract_node,
     evaluate_sufficiency_node,
@@ -35,11 +34,12 @@ dotenv_path = root_dir / ".env"
 load_dotenv(dotenv_path=dotenv_path)
 
 
-# 1. 그래프 빌드: parse_denial → retrieve_terms → planning
+# 1. 그래프 빌드: parse_denial → issue_planning → retrieve_terms → final_planning
 builder = StateGraph(OnboardingState)
 builder.add_node("parse_denial", parse_denial_node)
+builder.add_node("issue_planning", issue_planning_node)
 builder.add_node("retrieve_terms", retrieve_terms_node)
-builder.add_node("planning", planning_node)
+builder.add_node("final_planning", final_planning_node)
 builder.add_node("request_additional_documents", request_additional_documents_node)
 builder.add_node("parse_and_extract",parse_and_extract_node)
 builder.add_node("evaluate_sufficiency_node", evaluate_sufficiency_node)
@@ -47,9 +47,10 @@ builder.add_node("explain_decision", explain_decision_node)
 
 
 builder.add_edge(START, "parse_denial")
-builder.add_edge("parse_denial", "retrieve_terms")
-builder.add_edge("retrieve_terms", "planning")
-builder.add_edge("planning", "request_additional_documents")
+builder.add_edge("parse_denial", "issue_planning")
+builder.add_edge("issue_planning", "retrieve_terms")
+builder.add_edge("retrieve_terms", "final_planning")
+builder.add_edge("final_planning", "request_additional_documents")
 builder.add_edge("request_additional_documents", "parse_and_extract")
 builder.add_edge("parse_and_extract", "evaluate_sufficiency_node")
 
@@ -80,8 +81,14 @@ if __name__ == "__main__":
     thread_id = str(uuid.uuid4())
     print(f"--- 🚀 테스트 시작 (Thread ID: {thread_id}) ---")
 
-    # [Step 1: 외부 전처리] 그래프 실행 전, 유효한 파일 경로 받기
-    valid_file_path = "/Users/chanwooyang/workspace/upstage_workflow_pjt/hyundai_senior_silson_denial_sample.pdf"
+    # [Step 1: 외부 전처리] 그래프 실행 전, 입력 문서 경로 받기
+    valid_file_path = os.getenv("ONBOARDING_DENIAL_FILE", "").strip()
+    if not valid_file_path:
+        raise SystemExit(
+            "환경변수 ONBOARDING_DENIAL_FILE에 지급거절 명세서 파일 경로를 설정하세요."
+        )
+    if not Path(valid_file_path).exists():
+        raise SystemExit(f"입력 파일이 존재하지 않습니다: {valid_file_path}")
 
     # [Step 2: 벡터 DB 준비 (콜드 스타트 시 1회 인덱싱)]
     policy_vectordb = None
@@ -112,13 +119,11 @@ if __name__ == "__main__":
         config=runnable_config
     )
 
-    # 문서 요청 개수는 항상 3개이므로, resume 시 korean_denial_mock 경로 3개 리스트로 전달
-    mock_document_list = [valid_file_path] * 3
-
     while result.get("__interrupt__"):
         interrupt_list = result["__interrupt__"]
         payload = interrupt_list[0].value if interrupt_list else {}
         required = payload.get("required_documents", []) if isinstance(payload, dict) else []
+        mock_document_list = [valid_file_path] * max(len(required), 1)
         print(f"  [interrupt] 요청 서류: {required} → resume with {len(mock_document_list)}개 mock 경로")
         result = onboarding_graph.invoke(
             Command(resume=mock_document_list),

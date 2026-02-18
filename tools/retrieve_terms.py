@@ -84,44 +84,58 @@ def retrieve_terms_text(
     *,
     vectordb: Chroma | None = None,
 ) -> str:
-    """
-    Retrieve full insurance policy articles relevant to a query.
-    Returns merged article text blocks.
-    """
+    candidates = retrieve_terms_candidates(
+        query=query,
+        policy_date=policy_date,
+        k=k,
+        vectordb=vectordb,
+    )
+    return format_candidates_to_terms(candidates, top_n=k)
+
+
+def retrieve_terms_candidates(
+    query: str,
+    policy_date: str,
+    k: int = 5,
+    *,
+    vectordb: Chroma | None = None,
+) -> list[dict[str, object]]:
     cleaned_query = str(query).strip()
     cleaned_policy_date = str(policy_date).strip()
     if not cleaned_query or not cleaned_policy_date:
-        return ""
+        return []
 
     try:
         target_vectordb = ensure_vectordb_ready(vectordb)
     except Exception:
-        return ""
+        return []
 
     try:
-        # Step 1: Find top k most relevant chunks
         relevant_chunks = target_vectordb.similarity_search(
             cleaned_query,
             k=k,
             filter={"policy_date": cleaned_policy_date},
         )
     except Exception:
-        return ""
+        return []
 
     if not relevant_chunks:
-        return ""
+        return []
 
-    # Step 2: Extract unique (section, article) pairs
-    articles_to_fetch: set[tuple[str | None, str]] = set()
-    for chunk in relevant_chunks:
+    # Keep best rank per unique article.
+    pair_rank: dict[tuple[str | None, str], int] = {}
+    for rank, chunk in enumerate(relevant_chunks, start=1):
         article = chunk.metadata.get("Article")
         section = chunk.metadata.get("Document Section")
-        if article:
-            articles_to_fetch.add((section, article))
+        if not article:
+            continue
+        key = (section, article)
+        if key not in pair_rank:
+            pair_rank[key] = rank
 
-    # Step 3: Retrieve and combine all chunks per article
-    full_terms_docs: list[str] = []
-    for section, article in articles_to_fetch:
+    ordered_pairs = sorted(pair_rank.items(), key=lambda item: item[1])
+    candidates: list[dict[str, object]] = []
+    for (section, article), rank in ordered_pairs:
         if section is not None:
             where_filter = {
                 "$and": [
@@ -151,17 +165,91 @@ def retrieve_terms_text(
 
         sorted_pairs = sorted(paired, key=lambda x: x[0].get("chunk_id", ""))
         combined_text = "\n".join([text for _, text in sorted_pairs])
-
         first_metadata = sorted_pairs[0][0]
-        formatted = (
-            f"[Section: {first_metadata.get('Document Section', 'N/A')} | "
-            f"Article: {first_metadata.get('Article', 'N/A')} | "
-            f"Policy: {first_metadata.get('policy_date', 'N/A')}]\n"
-            f"{combined_text}"
+        section_title = first_metadata.get("Document Section", "N/A")
+        article_title = first_metadata.get("Article", "N/A")
+        source_id = f"{cleaned_policy_date}:{section_title}:{article_title}"
+        title = (
+            f"[Section: {section_title} | "
+            f"Article: {article_title} | "
+            f"Policy: {first_metadata.get('policy_date', 'N/A')}]"
         )
-        full_terms_docs.append(formatted)
+        full_text = f"{title}\n{combined_text}"
+        snippet = " ".join(combined_text.split())[:220]
+        candidates.append(
+            {
+                "source_id": source_id,
+                "title": title,
+                "snippet": snippet,
+                "full_text": full_text,
+                "query": cleaned_query,
+                "rank": rank,
+                "score": 0.0,
+                "matched_keywords": [],
+            }
+        )
+    return candidates
 
-    return "\n\n".join(full_terms_docs)
+
+def merge_candidates_rrf(
+    candidates_by_query: list[list[dict[str, object]]],
+    must_keywords_by_query: list[list[str]] | None = None,
+    *,
+    rrf_k: int = 60,
+    keyword_bonus: float = 0.2,
+    keyword_bonus_cap: float = 0.8,
+) -> list[dict[str, object]]:
+    merged: dict[str, dict[str, object]] = {}
+    all_keywords = must_keywords_by_query or []
+
+    for query_idx, candidates in enumerate(candidates_by_query):
+        keywords = all_keywords[query_idx] if query_idx < len(all_keywords) else []
+        normalized_keywords = [str(item).strip() for item in keywords if str(item).strip()]
+
+        for rank, item in enumerate(candidates, start=1):
+            source_id = str(item.get("source_id", "")).strip()
+            if not source_id:
+                continue
+
+            entry = merged.get(source_id)
+            if not entry:
+                entry = dict(item)
+                entry["score"] = 0.0
+                entry["_matched_keyword_set"] = set()
+                entry["_best_rank"] = int(item.get("rank", rank) or rank)
+                merged[source_id] = entry
+
+            base_score = 1.0 / float(rrf_k + rank)
+            haystack = f"{item.get('title', '')}\n{item.get('full_text', '')}".lower()
+            matched = [kw for kw in normalized_keywords if kw.lower() in haystack]
+            bonus = min(keyword_bonus * len(matched), keyword_bonus_cap)
+            entry["score"] = float(entry["score"]) + base_score + bonus
+            entry["_best_rank"] = min(int(entry.get("_best_rank", rank)), rank)
+            matched_set = entry.get("_matched_keyword_set")
+            if isinstance(matched_set, set):
+                matched_set.update(matched)
+
+    ranked = list(merged.values())
+    for item in ranked:
+        matched_set = item.get("_matched_keyword_set")
+        item["matched_keywords"] = sorted(matched_set) if isinstance(matched_set, set) else []
+        item.pop("_matched_keyword_set", None)
+        item.pop("_best_rank", None)
+
+    ranked.sort(
+        key=lambda x: (
+            -float(x.get("score", 0.0)),
+            int(x.get("rank", 9999) or 9999),
+            str(x.get("source_id", "")),
+        )
+    )
+    return ranked
+
+
+def format_candidates_to_terms(candidates: list[dict[str, object]], *, top_n: int = 5) -> str:
+    selected = candidates[:top_n] if top_n > 0 else candidates
+    full_terms = [str(item.get("full_text", "")).strip() for item in selected if str(item.get("full_text", "")).strip()]
+    return "\n\n".join(full_terms)
 
 # ============================================================================
 # Retrieval Tool

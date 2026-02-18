@@ -50,9 +50,53 @@ class EvidencePackItem(TypedDict, total=False):
     provenance: list[Provenance]
 
 
+class RAGItemProvenance(TypedDict, total=False):
+    index_name: str
+    retrieved_at: str
+    retrieval_method: Literal["vector", "keyword", "hybrid"]
+
+
+class RAGRetrievalItem(TypedDict, total=False):
+    source_type: Literal["CASELAW", "DISPUTE", "WEB"]
+    doc_id: str
+    chunk_id: str
+    title: str
+    snippet: str
+    score: float
+    rerank_score: float
+    url: str | None
+    published_at: str | None
+    provenance: RAGItemProvenance
+
+
+class RAGRetrievalStats(TypedDict, total=False):
+    candidate_count: int
+    returned_count: int
+    latency_ms: int
+
+
+class RAGRetrievalResult(TypedDict, total=False):
+    query_id: str
+    query: str
+    filters: dict
+    items: list[RAGRetrievalItem]
+    stats: RAGRetrievalStats
+
+
+class ScoringTrace(TypedDict, total=False):
+    precedent_score: int
+    case_adjustment: int
+    case_adjustment_source: Literal["llm", "heuristic", "zero"]
+    total_score: int
+    guardrails_applied: list[str]
+    cited_case_ids: list[str]
+
+
 class AnalysisResult(TypedDict, total=False):
     issue_tree: IssueTree
     gap_analysis: list[GapAnalysisItem]
     recommended_actions: list[RecommendedAction]
     success_probability: SuccessProbability
     evidence_pack: list[EvidencePackItem]
+    rag_result: RAGRetrievalResult
+    scoring_trace: ScoringTrace

@@ -20,6 +20,13 @@ from tools.data_analysis_tools.rag.hyde import (
     generate_reverse_hypothesis,
     generate_hypothetical_doc,
 )
+from tools.data_analysis_tools.rag.adjustment_engine import (
+    AdjustmentDecision,
+    AdjustmentLLM,
+    compute_adjustment_with_fallback,
+    compute_heuristic_adjustment,
+    compute_llm_adjustment,
+)
 from tools.data_analysis_tools.rag.index_store import (
     ChromaVectorIndexStore,
     InMemoryVectorIndexStore,
@@ -69,4 +76,9 @@ __all__ = [
     "normalize_web_results",
     "RetrieveRequest",
     "VectorRetriever",
+    "AdjustmentDecision",
+    "AdjustmentLLM",
+    "compute_llm_adjustment",
+    "compute_heuristic_adjustment",
+    "compute_adjustment_with_fallback",
 ]

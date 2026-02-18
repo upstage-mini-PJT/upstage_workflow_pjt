@@ -41,15 +41,26 @@ from tools.data_analysis_tools.rag import (
     normalize_ingestion_docs,
     rerank_retrieval_result,
 )
+from tools.data_analysis_tools.rag.adjustment_engine import compute_adjustment_with_fallback
 
 
 class DataAnalysisState(TypedDict, total=False):
     structured_case: StructuredCase
     retrieval_mode: RetrievalMode
     queries: list[RetrievalQuery]
+    precedent_queries: list[RetrievalQuery]
+    dispute_queries: list[RetrievalQuery]
     raw_cases: list[dict[str, Any]]
+    raw_precedent_cases: list[dict[str, Any]]
+    raw_dispute_cases: list[dict[str, Any]]
     normalized_cases: list[CaseLawDoc]
+    normalized_precedent_cases: list[CaseLawDoc]
+    normalized_dispute_cases: list[CaseLawDoc]
     ranked_cases: list[RankedCaseLawDoc]
+    precedent_ranked_cases: list[RankedCaseLawDoc]
+    dispute_ranked_cases: list[RankedCaseLawDoc]
+    precedent_rag_result: RAGRetrievalResult
+    dispute_rag_result: RAGRetrievalResult
     rag_result: RAGRetrievalResult
     issue_tree: IssueTree
     gap_analysis: list[GapAnalysisItem]
@@ -57,6 +68,7 @@ class DataAnalysisState(TypedDict, total=False):
     features: dict[str, Any]
     precedent_probability: SuccessProbability
     case_adjustment: int
+    case_adjustment_source: str
     adjustment_notes: list[str]
     success_probability: SuccessProbability
     scoring_trace: ScoringTrace
@@ -65,61 +77,65 @@ class DataAnalysisState(TypedDict, total=False):
 
 
 def _build_query_node(state: DataAnalysisState) -> DataAnalysisState:
-    return {"queries": build_queries(state["structured_case"])}
+    queries = build_queries(state["structured_case"])
+    precedent_queries = [q for q in queries if str(q.get("source", "")).upper() == "CASELAW"]
+    dispute_queries = [q for q in queries if str(q.get("source", "")).upper() == "DISPUTE"]
+    return {
+        "queries": queries,
+        "precedent_queries": precedent_queries,
+        "dispute_queries": dispute_queries,
+    }
 
 
 def _retrieve_node(state: DataAnalysisState) -> DataAnalysisState:
-    return {"raw_cases": retrieve_cases(state.get("queries", []), limit=20)}
+    raw_precedent = retrieve_cases(state.get("precedent_queries", []), limit=20)
+    raw_dispute = retrieve_cases(state.get("dispute_queries", []), limit=20)
+    return {
+        "raw_precedent_cases": raw_precedent,
+        "raw_dispute_cases": raw_dispute,
+        "raw_cases": raw_precedent + raw_dispute,
+    }
 
 
 def _normalize_rank_node(state: DataAnalysisState) -> DataAnalysisState:
-    normalized = normalize_cases(state.get("raw_cases", []))
-    ranked = rank_cases(normalized, state["structured_case"], top_k=6)
+    normalized_precedent = normalize_cases(state.get("raw_precedent_cases", []))
+    normalized_dispute = normalize_cases(state.get("raw_dispute_cases", []))
 
-    merged_query = " | ".join([q.get("query", "") for q in state.get("queries", [])])
-    ingestion_inputs: list[dict[str, Any]] = []
-    for doc in ranked:
-        ingestion_inputs.append(
-            {
-                "source_type": doc.get("source_type", "CASELAW"),
-                "doc_id": doc.get("doc_id"),
-                "title": doc.get("title", ""),
-                "body": doc.get("summary") or doc.get("holding") or "",
-                "published_at": doc.get("published_at"),
-                "tags": doc.get("keywords", []),
-                "url": doc.get("url"),
-                "meta": {"result": doc.get("result", ""), "source": doc.get("source", "caselaw")},
-            }
-        )
+    precedent_ranked = rank_cases(normalized_precedent, state["structured_case"], top_k=6)
+    dispute_ranked = rank_cases(normalized_dispute, state["structured_case"], top_k=6)
 
-    ingestion_docs = normalize_ingestion_docs(ingestion_inputs)
-    embedder = HashingEmbedder(embedding_dim=256)
-    chunks = chunk_ingestion_docs(
-        ingestion_docs,
-        ChunkingConfig(
-            chunk_size_tokens=300,
-            chunk_overlap_tokens=60,
-            embedding_model=embedder.model_name,
-            embedding_dim=embedder.embedding_dim,
-        ),
+    precedent_query = " | ".join([q.get("query", "") for q in state.get("precedent_queries", [])]) or "보험금 부지급 판례"
+    dispute_query = " | ".join([q.get("query", "") for q in state.get("dispute_queries", [])]) or "보험 분쟁 사례"
+
+    precedent_rag = _build_rag_result_from_ranked(
+        ranked=precedent_ranked,
+        query=precedent_query,
+        query_id=f"Q-{state['structured_case'].get('case_id', 'unknown')}-precedent",
+        retrieval_mode=state.get("retrieval_mode", "plain"),
+        source_filter="CASELAW",
+        structured_case=state.get("structured_case", {}),
     )
-    vectors = embed_chunks(chunks, embedder)
-    index_store = _build_vector_index_store()
-    index_store.upsert(chunks, vectors)
-
-    retriever = VectorRetriever(index_store=index_store, embedder=embedder)
-    retrieved = retriever.retrieve(
-        RetrieveRequest(
-            query=merged_query or "보험금 부지급",
-            top_k=6,
-            query_id=f"Q-{state['structured_case'].get('case_id', 'unknown')}",
-            filters={},
-            retrieval_mode=state.get("retrieval_mode", "plain"),
-            structured_case=state.get("structured_case", {}),
-        )
+    dispute_rag = _build_rag_result_from_ranked(
+        ranked=dispute_ranked,
+        query=dispute_query,
+        query_id=f"Q-{state['structured_case'].get('case_id', 'unknown')}-dispute",
+        retrieval_mode=state.get("retrieval_mode", "plain"),
+        source_filter="DISPUTE",
+        structured_case=state.get("structured_case", {}),
     )
-    rag_result = RAGRetrievalResult(**rerank_retrieval_result(retrieved))
-    return {"normalized_cases": normalized, "ranked_cases": ranked, "rag_result": rag_result}
+    merged_rag = _merge_rag_results(precedent_rag, dispute_rag, f"Q-{state['structured_case'].get('case_id', 'unknown')}")
+
+    return {
+        "normalized_precedent_cases": normalized_precedent,
+        "normalized_dispute_cases": normalized_dispute,
+        "normalized_cases": normalized_precedent + normalized_dispute,
+        "precedent_ranked_cases": precedent_ranked,
+        "dispute_ranked_cases": dispute_ranked,
+        "ranked_cases": precedent_ranked + dispute_ranked,
+        "precedent_rag_result": precedent_rag,
+        "dispute_rag_result": dispute_rag,
+        "rag_result": merged_rag,
+    }
 
 
 def _build_vector_index_store() -> Any:
@@ -229,96 +245,13 @@ def _build_precedent_only_features(features: dict[str, Any]) -> dict[str, Any]:
 
 def _score_precedent_node(state: DataAnalysisState) -> DataAnalysisState:
     rubric_path = Path("data/data_analysis_data/rubrics/success_probability_v1.yml")
-    features = extract_features(state["structured_case"], state.get("ranked_cases", []))
+    features = extract_features(state["structured_case"], state.get("precedent_ranked_cases", []))
     precedent_features = _build_precedent_only_features(features)
     precedent_probability = score_success(precedent_features, str(rubric_path))
     return {
         "features": features,
         "precedent_probability": precedent_probability,
     }
-
-
-def _heuristic_case_adjustment(payload: dict[str, Any]) -> dict[str, Any]:
-    top_cases = payload.get("top_cases", [])
-    if not top_cases:
-        return {"adjustment": 0, "rationale": "사례 없음", "cited_case_ids": []}
-
-    adjustment = 0
-    top_rel = float(top_cases[0].get("relevance_score", 0.0) or 0.0)
-    if top_rel >= 0.8:
-        adjustment += 6
-    elif top_rel >= 0.6:
-        adjustment += 3
-    elif top_rel < 0.3:
-        adjustment -= 3
-
-    win_like = 0
-    lose_like = 0
-    reliable_cases = [row for row in top_cases if float(row.get("relevance_score", 0.0) or 0.0) >= 0.25]
-    for row in reliable_cases:
-        result = str(row.get("result", "") or "")
-        if any(k in result for k in ["승소", "인용", "조정 성립"]):
-            win_like += 1
-        if any(k in result for k in ["패소", "기각", "각하", "불수용"]):
-            lose_like += 1
-
-    if win_like >= 2:
-        adjustment += 4
-    elif lose_like >= 2:
-        adjustment -= 4
-
-    cited = [str(row.get("doc_id", "")) for row in top_cases[:2] if row.get("doc_id")]
-    return {
-        "adjustment": adjustment,
-        "rationale": "상위 사례 관련도/판정 경향 기반 보정",
-        "cited_case_ids": cited,
-    }
-
-
-def _apply_adjustment_guardrails(
-    raw_adjustment: Any,
-    rationale: str,
-    cited_case_ids: list[str],
-    ranked_cases: list[RankedCaseLawDoc],
-    precedent_score: int,
-) -> tuple[int, list[str], list[str]]:
-    notes: list[str] = []
-
-    try:
-        adjustment = int(round(float(raw_adjustment)))
-    except Exception:
-        adjustment = 0
-        notes.append("사례 보정치 파싱 실패: 0으로 대체")
-
-    valid_ids = {str(c.get("doc_id", "")) for c in ranked_cases}
-
-    if not rationale or len(rationale.strip()) < 8:
-        adjustment = 0
-        notes.append("사례 보정치 무효화: rationale 부족")
-
-    if not cited_case_ids or any(cid not in valid_ids for cid in cited_case_ids):
-        adjustment = 0
-        notes.append("사례 보정치 무효화: 유효 provenance 부재")
-
-    if adjustment > 15:
-        adjustment = 15
-        notes.append("사례 보정치 상한 적용(+15)")
-    if adjustment < -15:
-        adjustment = -15
-        notes.append("사례 보정치 하한 적용(-15)")
-
-    if precedent_score < 20 and adjustment > 8:
-        adjustment = 8
-        notes.append("저신뢰 1차 점수 보호: +8로 제한")
-    if precedent_score > 85 and adjustment < -8:
-        adjustment = -8
-        notes.append("고신뢰 1차 점수 보호: -8로 제한")
-    if precedent_score < 50 and adjustment > 1:
-        adjustment = 1
-        notes.append("중저신뢰 1차 점수 보호: 양의 보정 +1로 제한")
-
-    valid_cited = [cid for cid in cited_case_ids if cid in valid_ids]
-    return adjustment, notes, valid_cited
 
 
 def _score_to_band(score: int) -> str:
@@ -329,95 +262,50 @@ def _score_to_band(score: int) -> str:
     return "HIGH"
 
 
-def _compute_case_adjustment(
-    structured_case: StructuredCase,
-    ranked_cases: list[RankedCaseLawDoc],
-    precedent_score: int,
-    features: dict[str, Any],
-) -> tuple[int, list[str], list[str], str]:
-    if not ranked_cases:
-        return 0, ["사례 기반 보정 미적용: 검색된 사례 없음"], [], "사례 없음"
-
-    payload = {
-        "case": {
-            "denial_summary": structured_case.get("denial_summary", ""),
-            "denial_reasons": structured_case.get("denial_reasons", []),
-        },
-        "top_cases": [
-            {
-                "doc_id": c.get("doc_id", ""),
-                "title": c.get("title", ""),
-                "relevance_score": c.get("relevance_score", 0.0),
-                "result": c.get("result", ""),
-            }
-            for c in ranked_cases[:3]
-        ],
-        "precedent_score": precedent_score,
-    }
-
-    raw = _heuristic_case_adjustment(payload)
-    raw_adjustment = int(raw.get("adjustment", 0))
-    adjustment_notes: list[str] = []
-
-    if float(features.get("evidence_completeness", 0.0)) >= 0.9 and float(features.get("top_relevance", 0.0)) >= 0.3:
-        raw_adjustment += 4
-        adjustment_notes.append("증빙 완결성과 근거 관련도 반영: +4")
-    if float(features.get("evidence_completeness", 0.0)) < 0.3 and int(features.get("open_question_count", 0)) >= 2:
-        raw_adjustment -= 10
-        adjustment_notes.append("증빙 부족/미해결 쟁점 다수 반영: -10")
-
-    adjustment, notes, cited_ids = _apply_adjustment_guardrails(
-        raw_adjustment=raw_adjustment,
-        rationale=str(raw.get("rationale", "")),
-        cited_case_ids=[str(x) for x in raw.get("cited_case_ids", [])],
-        ranked_cases=ranked_cases,
-        precedent_score=precedent_score,
-    )
-    rationale_parts = [str(raw.get("rationale", "")).strip()]
-    if adjustment_notes:
-        rationale_parts.append(" / ".join(adjustment_notes))
-    rationale_text = " | ".join([p for p in rationale_parts if p]) or "사례 기반 휴리스틱 보정"
-    return adjustment, adjustment_notes + notes, cited_ids, rationale_text
-
-
 def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
     precedent = state.get("precedent_probability", SuccessProbability(score=0, band="LOW"))
     precedent_score = int(precedent.get("score", 0))
+    dispute_rag = state.get("dispute_rag_result", RAGRetrievalResult(query_id="Q-dispute", query="", filters={}, items=[], stats={"candidate_count": 0, "returned_count": 0, "latency_ms": 0}))
+    valid_doc_ids = {str(item.get("doc_id", "")) for item in dispute_rag.get("items", []) if item.get("doc_id")}
 
-    adjustment, notes, cited_ids, rationale_text = _compute_case_adjustment(
-        state["structured_case"],
-        state.get("ranked_cases", []),
-        precedent_score,
-        state.get("features", {}),
+    decision = compute_adjustment_with_fallback(
+        structured_case=state["structured_case"],
+        dispute_ranked_cases=state.get("dispute_ranked_cases", []),
+        precedent_score=precedent_score,
+        features=state.get("features", {}),
+        valid_doc_ids=valid_doc_ids,
     )
 
     scoring_trace = compute_comparative_scoring(
         ComparativeScoringInput(
-            rag_result=state.get("rag_result", RAGRetrievalResult(query_id="Q-unknown", query="", filters={}, items=[], stats={"candidate_count": 0, "returned_count": 0, "latency_ms": 0})),
-            case_adjustment=adjustment,
-            rationale=rationale_text,
-            cited_case_ids=cited_ids,
+            rag_result=state.get("precedent_rag_result", RAGRetrievalResult(query_id="Q-precedent", query="", filters={}, items=[], stats={"candidate_count": 0, "returned_count": 0, "latency_ms": 0})),
+            case_adjustment=decision.case_adjustment,
+            case_adjustment_source=decision.source,
+            rationale=decision.rationale,
+            cited_case_ids=decision.cited_case_ids,
         )
     )
-    total_score = int(scoring_trace.get("total_score", max(0, min(100, precedent_score + adjustment))))
+    total_score = int(scoring_trace.get("total_score", max(0, min(100, precedent_score + decision.case_adjustment))))
     total_band = _score_to_band(total_score)
 
     positive_drivers = list(precedent.get("positive_drivers", []))
     negative_drivers = list(precedent.get("negative_drivers", []))
-    if adjustment > 0:
-        positive_drivers.append(f"사례 기반 보정 +{adjustment}점")
-    elif adjustment < 0:
-        negative_drivers.append(f"사례 기반 보정 {adjustment}점")
+    if decision.case_adjustment > 0:
+        positive_drivers.append(f"사례 기반 보정 +{decision.case_adjustment}점")
+    elif decision.case_adjustment < 0:
+        negative_drivers.append(f"사례 기반 보정 {decision.case_adjustment}점")
 
-    assumptions = list(precedent.get("assumptions", [])) + notes + [
+    assumptions = list(precedent.get("assumptions", [])) + list(decision.notes) + [
         f"precedent_score={precedent_score}",
-        f"case_adjustment={adjustment}",
+        f"case_adjustment={decision.case_adjustment}",
+        f"case_adjustment_source={decision.source}",
         f"total_score={total_score}",
     ]
 
     return {
-        "case_adjustment": adjustment,
-        "adjustment_notes": notes,
+        "case_adjustment": decision.case_adjustment,
+        "case_adjustment_source": decision.source,
+        "adjustment_notes": decision.notes,
         "scoring_trace": ScoringTrace(**scoring_trace),
         "success_probability": SuccessProbability(
             score=total_score,
@@ -484,7 +372,7 @@ def _finalize_node(state: DataAnalysisState) -> DataAnalysisState:
         ),
         evidence_pack=state.get("evidence_pack", []),
         rag_result=state.get("rag_result", RAGRetrievalResult(query_id="Q-unknown", query="", filters={}, items=[], stats={"candidate_count": 0, "returned_count": 0, "latency_ms": 0})),
-        scoring_trace=state.get("scoring_trace", ScoringTrace(precedent_score=0, case_adjustment=0, total_score=0, guardrails_applied=["missing score trace"], cited_case_ids=[])),
+        scoring_trace=state.get("scoring_trace", ScoringTrace(precedent_score=0, case_adjustment=0, case_adjustment_source="zero", total_score=0, guardrails_applied=["missing score trace"], cited_case_ids=[])),
     )
     return {"analysis_result": result}
 
@@ -514,6 +402,92 @@ def build_graph() -> Any:
     graph.add_edge("package_evidence", "finalize")
     graph.add_edge("finalize", END)
     return graph.compile()
+
+
+def _build_rag_result_from_ranked(
+    *,
+    ranked: list[RankedCaseLawDoc],
+    query: str,
+    query_id: str,
+    retrieval_mode: RetrievalMode,
+    source_filter: str,
+    structured_case: StructuredCase,
+) -> RAGRetrievalResult:
+    ingestion_inputs: list[dict[str, Any]] = []
+    for doc in ranked:
+        ingestion_inputs.append(
+            {
+                "source_type": doc.get("source_type", source_filter),
+                "doc_id": doc.get("doc_id"),
+                "title": doc.get("title", ""),
+                "body": doc.get("summary") or doc.get("holding") or "",
+                "published_at": doc.get("published_at"),
+                "tags": doc.get("keywords", []),
+                "url": doc.get("url"),
+                "meta": {"result": doc.get("result", ""), "source": doc.get("source", "")},
+            }
+        )
+    if not ingestion_inputs:
+        return RAGRetrievalResult(
+            query_id=query_id,
+            query=query,
+            retrieval_mode=retrieval_mode,
+            query_variants=["plain"] if retrieval_mode == "plain" else [str(retrieval_mode)],
+            filters={"source_type": source_filter},
+            items=[],
+            stats={"candidate_count": 0, "returned_count": 0, "latency_ms": 0},
+        )
+
+    ingestion_docs = normalize_ingestion_docs(ingestion_inputs)
+    embedder = HashingEmbedder(embedding_dim=256)
+    chunks = chunk_ingestion_docs(
+        ingestion_docs,
+        ChunkingConfig(
+            chunk_size_tokens=300,
+            chunk_overlap_tokens=60,
+            embedding_model=embedder.model_name,
+            embedding_dim=embedder.embedding_dim,
+        ),
+    )
+    vectors = embed_chunks(chunks, embedder)
+    index_store = _build_vector_index_store()
+    index_store.upsert(chunks, vectors)
+
+    retriever = VectorRetriever(index_store=index_store, embedder=embedder)
+    retrieved = retriever.retrieve(
+        RetrieveRequest(
+            query=query,
+            top_k=6,
+            query_id=query_id,
+            filters={"source_type": source_filter},
+            retrieval_mode=retrieval_mode,
+            structured_case=structured_case,
+        )
+    )
+    return RAGRetrievalResult(**rerank_retrieval_result(retrieved))
+
+
+def _merge_rag_results(precedent: RAGRetrievalResult, dispute: RAGRetrievalResult, query_id: str) -> RAGRetrievalResult:
+    items = list(precedent.get("items", [])) + list(dispute.get("items", []))
+    items.sort(key=lambda x: float(x.get("rerank_score", x.get("score", 0.0))), reverse=True)
+    merged_items = items[:6]
+    return RAGRetrievalResult(
+        query_id=query_id,
+        query=f"{precedent.get('query','')} || {dispute.get('query','')}",
+        retrieval_mode=precedent.get("retrieval_mode", "plain"),
+        query_variants=list(
+            dict.fromkeys(list(precedent.get("query_variants", [])) + list(dispute.get("query_variants", [])))
+        ),
+        filters={},
+        items=merged_items,
+        stats={
+            "candidate_count": int(precedent.get("stats", {}).get("candidate_count", 0))
+            + int(dispute.get("stats", {}).get("candidate_count", 0)),
+            "returned_count": len(merged_items),
+            "latency_ms": int(precedent.get("stats", {}).get("latency_ms", 0))
+            + int(dispute.get("stats", {}).get("latency_ms", 0)),
+        },
+    )
 
 
 def _resolve_retrieval_mode(mode: str | None) -> RetrievalMode:

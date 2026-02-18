@@ -119,6 +119,7 @@ class ComparativeAnalysisInput(TypedDict, total=False):
 class ScoringTrace(TypedDict, total=False):
     precedent_score: int
     case_adjustment: int
+    case_adjustment_source: Literal["llm", "heuristic", "zero"]
     total_score: int
     guardrails_applied: list[str]
     cited_case_ids: list[str]

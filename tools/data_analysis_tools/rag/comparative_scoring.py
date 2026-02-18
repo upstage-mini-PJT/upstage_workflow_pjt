@@ -14,6 +14,7 @@ from core.schemas.rag_conventions import (
 class ComparativeScoringInput:
     rag_result: RAGRetrievalResult
     case_adjustment: int = 0
+    case_adjustment_source: str = "zero"
     rationale: str = ""
     cited_case_ids: list[str] | None = None
 
@@ -29,10 +30,9 @@ def compute_comparative_scoring(payload: ComparativeScoringInput) -> ScoringTrac
     cited_case_ids = payload.cited_case_ids or []
     rationale = payload.rationale.strip()
 
-    # Relaxed guardrail: invalidate only when both rationale and citations are missing.
-    if adjustment != 0 and (not rationale and not cited_case_ids):
+    if adjustment != 0 and not cited_case_ids:
         adjustment = 0
-        guardrails_applied.append("adjustment_invalidated_missing_rationale_or_citations")
+        guardrails_applied.append("adjustment_invalidated_missing_citations")
 
     valid_doc_ids = {
         str(item.get("doc_id", "")).strip()
@@ -42,18 +42,11 @@ def compute_comparative_scoring(payload: ComparativeScoringInput) -> ScoringTrac
 
     if adjustment != 0:
         invalid_ids = [cid for cid in cited_case_ids if cid not in valid_doc_ids]
-        if invalid_ids and cited_case_ids:
+        if invalid_ids:
             cited_case_ids = [cid for cid in cited_case_ids if cid in valid_doc_ids]
-            if not cited_case_ids and not rationale:
+            guardrails_applied.append("adjustment_invalidated_citation_mismatch")
+            if not cited_case_ids:
                 adjustment = 0
-                guardrails_applied.append("adjustment_invalidated_citation_mismatch")
-            elif invalid_ids:
-                guardrails_applied.append("citation_mismatch_filtered")
-
-        if not cited_case_ids and rationale:
-            guardrails_applied.append("adjustment_applied_with_rationale_only")
-        if cited_case_ids and not rationale:
-            guardrails_applied.append("adjustment_applied_with_citations_only")
 
     total_score = clamp_total_score(precedent_score + adjustment)
     if total_score != precedent_score + adjustment:
@@ -62,6 +55,7 @@ def compute_comparative_scoring(payload: ComparativeScoringInput) -> ScoringTrac
     return ScoringTrace(
         precedent_score=precedent_score,
         case_adjustment=adjustment,
+        case_adjustment_source=str(payload.case_adjustment_source or "zero"),
         total_score=total_score,
         guardrails_applied=guardrails_applied,
         cited_case_ids=cited_case_ids,

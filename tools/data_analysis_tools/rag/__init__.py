@@ -17,6 +17,7 @@ from tools.data_analysis_tools.rag.embedder import Embedder, HashingEmbedder, em
 from tools.data_analysis_tools.rag.hyde import (
     HyDEConfig,
     HyDEGenerator,
+    generate_reverse_hypothesis,
     generate_hypothetical_doc,
 )
 from tools.data_analysis_tools.rag.index_store import (
@@ -54,6 +55,7 @@ __all__ = [
     "HyDEGenerator",
     "HyDEConfig",
     "generate_hypothetical_doc",
+    "generate_reverse_hypothesis",
     "SearchResult",
     "VectorIndexStore",
     "InMemoryVectorIndexStore",

@@ -13,6 +13,7 @@ class HyDEGenerator(Protocol):
 class HyDEConfig:
     max_chars: int = 700
     include_open_questions: bool = True
+    reverse_max_items: int = 5
 
 
 def generate_hypothetical_doc(
@@ -91,3 +92,63 @@ def _truncate(text: str, max_chars: int) -> str:
     if len(text) <= max_chars:
         return text
     return text[:max_chars].rstrip() + "..."
+
+
+def generate_reverse_hypothesis(
+    query: str,
+    retrieved_items: list[dict],
+    generator: HyDEGenerator | None = None,
+    config: HyDEConfig | None = None,
+) -> str:
+    cfg = config or HyDEConfig()
+    clean_query = query.strip()
+    if not clean_query:
+        raise ValueError("query must not be empty")
+
+    top_items = retrieved_items[: max(1, cfg.reverse_max_items)]
+    prompt = _build_reverse_prompt(clean_query, top_items)
+
+    if generator is None:
+        return _truncate(_build_local_reverse_hypothesis(clean_query, top_items), cfg.max_chars)
+
+    try:
+        generated = generator.generate(prompt).strip()
+    except Exception:
+        generated = ""
+    if not generated:
+        return _truncate(_build_local_reverse_hypothesis(clean_query, top_items), cfg.max_chars)
+    return _truncate(generated, cfg.max_chars)
+
+
+def _build_reverse_prompt(query: str, items: list[dict]) -> str:
+    snippets: list[str] = []
+    for idx, item in enumerate(items, start=1):
+        title = str(item.get("title", ""))
+        snippet = str(item.get("snippet", ""))
+        snippets.append(f"[{idx}] title={title} / snippet={snippet}")
+
+    return (
+        "다음 검색결과를 바탕으로 재검색용 가설문서를 4~6문장으로 작성하세요. "
+        "중복 표현을 줄이고 핵심 법리/쟁점을 명확히 하세요.\n"
+        f"질문: {query}\n"
+        f"검색결과:\n{chr(10).join(snippets)}"
+    )
+
+
+def _build_local_reverse_hypothesis(query: str, items: list[dict]) -> str:
+    if not items:
+        return (
+            f"검색 질문 '{query}'에 대해 판례와 분쟁사례의 핵심 판단기준을 재정리한다. "
+            "면책조항 해석, 인과관계 판단, 입증책임 분배 기준을 중심으로 유사 사례를 재검색한다."
+        )
+
+    titles = [str(item.get("title", "")).strip() for item in items if str(item.get("title", "")).strip()]
+    snippets = [str(item.get("snippet", "")).strip() for item in items if str(item.get("snippet", "")).strip()]
+    joined_titles = ", ".join(titles[:3]) if titles else "상위 검색결과"
+    short_snippet = " ".join(snippets[:2])[:220]
+
+    return (
+        f"질문 '{query}'의 재검색을 위해 상위 결과({joined_titles})를 핵심 근거로 재정리한다. "
+        f"주요 요지는 다음과 같다: {short_snippet}. "
+        "재검색 시 약관 문언 해석, 부지급 사유별 입증 기준, 사실관계 유사성의 판단 요소를 우선 반영한다."
+    )

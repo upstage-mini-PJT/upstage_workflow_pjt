@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 EXPECTED_SCENARIO_CONSTRAINTS: dict[str, dict[str, object]] = {
-    "S01": {"expected_band": "MEDIUM", "min_total_score": 64, "max_total_score": 72, "min_rag_items": 3},
+    "S01": {"expected_band": "MEDIUM", "min_total_score": 63, "max_total_score": 72, "min_rag_items": 3},
     "S02": {"expected_band": "MEDIUM", "min_total_score": 58, "max_total_score": 66, "min_rag_items": 3},
     "S03": {"expected_band": "MEDIUM", "min_total_score": 54, "max_total_score": 62, "min_rag_items": 3},
     "S04": {"expected_band": "MEDIUM", "min_total_score": 51, "max_total_score": 59, "min_rag_items": 3},

@@ -14,7 +14,11 @@ from tools.data_analysis_tools.rag.comparative_scoring import (
     compute_comparative_scoring,
 )
 from tools.data_analysis_tools.rag.embedder import Embedder, HashingEmbedder, embed_chunks
-from tools.data_analysis_tools.rag.index_store import InMemoryVectorIndexStore, SearchResult
+from tools.data_analysis_tools.rag.index_store import (
+    ChromaVectorIndexStore,
+    InMemoryVectorIndexStore,
+    SearchResult,
+)
 from tools.data_analysis_tools.rag.reranker import (
     RerankConfig,
     RerankError,
@@ -43,6 +47,7 @@ __all__ = [
     "embed_chunks",
     "SearchResult",
     "InMemoryVectorIndexStore",
+    "ChromaVectorIndexStore",
     "RerankConfig",
     "RerankError",
     "rerank_retrieval_result",

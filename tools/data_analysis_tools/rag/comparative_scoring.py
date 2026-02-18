@@ -71,6 +71,11 @@ def compute_comparative_scoring(payload: ComparativeScoringInput) -> ScoringTrac
             case_adjustment=adjustment,
             total_score=total_score,
             guardrails_applied=guardrails_applied,
+            retrieval_context={
+                "retrieval_mode": payload.rag_result.get("retrieval_mode", "plain"),
+                "query_variants": payload.rag_result.get("query_variants", ["plain"]),
+                "retrieved_items": len(payload.rag_result.get("items", [])),
+            },
         ),
     )
 
@@ -133,6 +138,7 @@ def _build_scoring_tree(
     case_adjustment: int,
     total_score: int,
     guardrails_applied: list[str],
+    retrieval_context: dict | None = None,
 ) -> TreeNode:
     root_id = "scoring:root"
     return TreeNode(
@@ -140,7 +146,10 @@ def _build_scoring_tree(
         node_type="ROOT",
         parent_id=None,
         title="Comparative Scoring",
-        payload={"guardrails_applied": guardrails_applied},
+        payload={
+            "guardrails_applied": guardrails_applied,
+            "retrieval_context": retrieval_context or {},
+        },
         children=[
             TreeNode(
                 node_id="scoring:precedent",

@@ -194,13 +194,35 @@ def evaluate_sufficiency_node(state: dict, config: RunnableConfig) -> dict:
 
 
 def _build_sufficiency_prompt(plan: str, required_documents: list, extracted_infos: list[dict]) -> str:
-    req_str = "\n".join(f"- {r}" for r in (required_documents or [])) or "(없음)"
+    plan_text = plan.strip() if plan else "(없음)"
+    req_str = "\n".join(f"- {r}" for r in (required_documents or [])) or "- (없음)"
+
     docs_str = ""
     for i, info in enumerate(extracted_infos, 1):
         docs_str += f"\n[문서 {i}]\n"
-        docs_str += f"핵심 데이터: {info.get('key_data', '')}\n"
-        docs_str += f"근거: {info.get('evidence_or_grounds', '')}\n"
-        docs_str += f"기타: {info.get('helpful_notes', '')}\n"
-    return f"""분쟁 신청 계획과 요청했던 서류, 그리고 아래 추출된 문서별 정보를 종합했을 때, 분쟁 신청을 진행하기에 **근거가 충분한지** 판단해 주세요.
-    충분하면 sufficient=True, 부족하면 sufficient=False로 답하세요.
-    """
+        docs_str += f"- 핵심 데이터: {str(info.get('key_data', '')).strip() or '(없음)'}\n"
+        docs_str += f"- 근거: {str(info.get('evidence_or_grounds', '')).strip() or '(없음)'}\n"
+        docs_str += f"- 기타: {str(info.get('helpful_notes', '')).strip() or '(없음)'}\n"
+
+    return f"""당신은 보험 분쟁 신청 준비도를 점검하는 심사자입니다.
+아래 정보를 반드시 모두 읽고, 지금 상태에서 분쟁 신청을 진행하기에 근거가 충분한지 판단하세요.
+
+[분쟁 신청 계획]
+{plan_text}
+
+[요청했던 추가 서류]
+{req_str}
+
+[문서별 추출 정보]
+{docs_str if docs_str else "(문서 정보 없음)"}
+
+판정 기준:
+1) 계획(plan)의 핵심 주장에 대응되는 사실/근거가 문서 추출 정보에 실제로 존재하는가
+2) 요청했던 추가 서류 항목이 실질적으로 충족되었거나, 그에 준하는 근거가 있는가
+3) 핵심 근거가 비어 있거나 모순/불명확하면 insufficient로 본다
+
+출력 규칙:
+- 충분하면 sufficient=true
+- 부족하면 sufficient=false
+- 반드시 불리언 하나만 판단하고, 추측으로 true를 주지 마세요.
+"""

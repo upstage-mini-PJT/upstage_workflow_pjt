@@ -114,7 +114,7 @@ def get_document_catalog() -> list[dict[str, object]]:
     return deepcopy(DOCUMENT_CATALOG)
 
 
-def normalize_required_document_ids(candidate_ids: list[str], *, max_items: int = 5) -> list[str]:
+def normalize_required_document_ids(candidate_ids: list[str], *, max_items: int = 3) -> list[str]:
     normalized: list[str] = []
     seen: set[str] = set()
     for raw in candidate_ids:

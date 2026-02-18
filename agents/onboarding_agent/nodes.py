@@ -362,7 +362,7 @@ def final_planning_node(state: dict, config: RunnableConfig) -> dict:
     response = _invoke_structured_or_fallback(chat_client, FinalPlanningResponse, prompt, fallback)
     required_document_ids = normalize_required_document_ids(
         [str(item).strip() for item in (response.required_document_ids or []) if str(item).strip()],
-        max_items=5,
+        max_items=3,
     )
     if not required_document_ids:
         required_document_ids = list(fallback.required_document_ids)
@@ -391,7 +391,7 @@ def request_additional_documents_node(state: dict, config: RunnableConfig) -> di
     """
     required_ids = normalize_required_document_ids(
         [str(item).strip() for item in (state.get("required_document_ids") or []) if str(item).strip()],
-        max_items=5,
+        max_items=3,
     )
     required = list(state.get("required_documents") or [])
     if required_ids and not required:
@@ -470,7 +470,7 @@ def _build_final_planning_prompt(
 2) required_document_ids (추가 필요 서류 ID 목록)
 - 반드시 위 카탈로그의 id 중에서만 선택하세요.
 - 임의의 새 서류명을 만들지 마세요.
-- 최대 5개까지만 선택하세요.
+- 최대 3개까지만 선택하세요.
 - 전략적으로 꼭 필요한 문서만 선택하세요.
 
 추가로 confidence( high / medium / low )를 함께 반환하세요.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from math import sqrt
 
 from core.schemas.rag_contract import RAGRetrievalResult, ScoringTrace, TreeNode
 from core.schemas.rag_conventions import (
@@ -79,13 +80,52 @@ def _compute_precedent_score(rag_result: RAGRetrievalResult) -> int:
     if not items:
         return 0
 
-    weighted_scores: list[float] = []
-    for item in items:
-        rerank_score = float(item.get("rerank_score", item.get("score", 0.0)) or 0.0)
-        weighted_scores.append(max(0.0, min(1.0, rerank_score)))
+    scores = [
+        max(0.0, min(1.0, float(item.get("rerank_score", item.get("score", 0.0)) or 0.0)))
+        for item in items
+    ]
+    weighted = _weighted_topk_score(scores)
+    calibrated = weighted**0.75
 
-    average = sum(weighted_scores) / len(weighted_scores)
-    return round(average * 100)
+    base = calibrated * 80.0
+    top_boost = min(12.0, max(0.0, scores[0] - 0.5) * 40.0)
+    consistency = _consistency_bonus(scores)
+    coverage = min(8.0, len(scores) * 1.6)
+    diversity = _source_diversity_bonus(items)
+    low_quality_penalty = _low_quality_penalty(scores[0])
+
+    raw_score = base + top_boost + consistency + coverage + diversity - low_quality_penalty
+    return max(0, min(100, round(raw_score)))
+
+
+def _weighted_topk_score(scores: list[float]) -> float:
+    top1 = scores[0] if len(scores) >= 1 else 0.0
+    top2 = scores[1] if len(scores) >= 2 else top1
+    top3 = scores[2] if len(scores) >= 3 else top2
+    tail = scores[3:8] if len(scores) >= 4 else scores
+    tail_avg = sum(tail) / len(tail) if tail else 0.0
+    return (0.45 * top1) + (0.25 * top2) + (0.15 * top3) + (0.15 * tail_avg)
+
+
+def _consistency_bonus(scores: list[float]) -> float:
+    if len(scores) <= 1:
+        return 2.0
+    avg = sum(scores) / len(scores)
+    variance = sum((s - avg) ** 2 for s in scores) / len(scores)
+    std = sqrt(variance)
+    return max(0.0, 5.0 - (std * 15.0))
+
+
+def _source_diversity_bonus(items: list[dict]) -> float:
+    source_types = {str(item.get("source_type", "")) for item in items if item.get("source_type")}
+    # 1 source -> 0, 2 sources -> 2.5, 3+ sources -> 5
+    return min(5.0, max(0.0, (len(source_types) - 1) * 2.5))
+
+
+def _low_quality_penalty(top_score: float) -> float:
+    if top_score >= 0.4:
+        return 0.0
+    return min(10.0, (0.4 - top_score) * 35.0)
 
 
 def _build_scoring_tree(

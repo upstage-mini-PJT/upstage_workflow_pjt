@@ -23,7 +23,8 @@ from .nodes import (
     planning_node,
     request_additional_documents_node,
     parse_and_extract_node,
-    evaluate_sufficiency_node
+    evaluate_sufficiency_node,
+    explain_decision_node,
 )
 from .state import OnboardingState
 import uuid
@@ -42,6 +43,7 @@ builder.add_node("planning", planning_node)
 builder.add_node("request_additional_documents", request_additional_documents_node)
 builder.add_node("parse_and_extract",parse_and_extract_node)
 builder.add_node("evaluate_sufficiency_node", evaluate_sufficiency_node)
+builder.add_node("explain_decision", explain_decision_node)
 
 
 builder.add_edge(START, "parse_denial")
@@ -54,17 +56,18 @@ builder.add_edge("parse_and_extract", "evaluate_sufficiency_node")
 
 
 def _evidence_sufficiency_path(state: dict) -> str:
-    """evidence_sufficient가 True면 END, False면 request_additional_documents로 복귀."""
+    """evidence_sufficient가 True면 explain_decision, False면 request_additional_documents로 복귀."""
     if state.get("evidence_sufficient"):
-        return "__end__"
+        return "explain_decision"
     return "request_additional_documents"
 
 
 builder.add_conditional_edges(
     "evaluate_sufficiency_node",
     _evidence_sufficiency_path,
-    {"__end__": END, "request_additional_documents": "request_additional_documents"},
+    {"explain_decision": "explain_decision", "request_additional_documents": "request_additional_documents"},
 )
+builder.add_edge("explain_decision", END)
 
 memory = MemorySaver()
 onboarding_graph = builder.compile(checkpointer=memory)
@@ -130,3 +133,15 @@ if __name__ == "__main__":
     req_docs = final_state.get("required_documents")
     if req_docs is not None:
         print(f"필요 서류: {req_docs}")
+
+    explanation = (final_state.get("decision_explanation") or "").strip()
+    if explanation:
+        print("\n--- 👤 사용자 설명문 ---")
+        print(explanation)
+
+    decision_summary = final_state.get("decision_summary") or {}
+    if decision_summary:
+        print("\n--- 📌 설명 요약 ---")
+        print("사용자 상황:", decision_summary.get("user_situation", ""))
+        print("보험사 주장:", decision_summary.get("insurer_claim", ""))
+        print("결론 근거:", decision_summary.get("conclusion_reason", ""))

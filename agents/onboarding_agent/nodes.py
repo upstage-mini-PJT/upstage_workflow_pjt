@@ -12,9 +12,12 @@ from langgraph.types import interrupt
 from tools.document_parser import parse_document
 
 from agents.onboarding_agent.schemas import (
+    DecisionExplanationResponse,
+    EvidenceReference,
+    ClauseReference,
     PlanningResponse,
     ExtractedDocumentInfo,
-    SufficiencyResponse
+    SufficiencyResponse,
 )
 
 def parse_denial_node(state: dict, config: RunnableConfig) -> dict:
@@ -251,3 +254,206 @@ def _build_sufficiency_prompt(plan: str, required_documents: list, extracted_inf
 - 부족하면 sufficient=false
 - 반드시 불리언 하나만 판단하고, 추측으로 true를 주지 마세요.
 """
+
+
+def _extract_clause_blocks(relevant_terms: str, limit: int = 3) -> list[dict[str, str]]:
+    text = (relevant_terms or "").strip()
+    if not text:
+        return []
+
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("[Section:"):
+            if current:
+                blocks.append(current)
+            current = [line]
+        elif current:
+            current.append(line)
+    if current:
+        blocks.append(current)
+
+    items: list[dict[str, str]] = []
+    for block in blocks[:limit]:
+        title = block[0].strip()
+        body_lines = [line.strip() for line in block[1:] if line.strip()]
+        snippet = " ".join(body_lines)[:180] if body_lines else "(본문 없음)"
+        items.append({"title": title, "snippet": snippet})
+    return items
+
+
+def _extract_document_evidence(infos: list[dict], limit: int = 3) -> list[dict[str, str | int]]:
+    extracted: list[dict[str, str | int]] = []
+    for idx, info in enumerate(infos[:limit], start=1):
+        key_data = str(info.get("key_data", "")).strip()
+        evidence = str(info.get("evidence_or_grounds", "")).strip()
+        helpful = str(info.get("helpful_notes", "")).strip()
+        extracted.append(
+            {
+                "source_index": idx,
+                "key_data": key_data or helpful or "(핵심 데이터 없음)",
+                "evidence": evidence or helpful or "(근거 문구 없음)",
+            }
+        )
+    return extracted
+
+
+def _build_decision_explanation_prompt(
+    denial_text: str,
+    relevant_terms: str,
+    plan: str,
+    required_documents: list[str],
+    extracted_infos: list[dict],
+) -> str:
+    required_text = "\n".join(f"- {item}" for item in required_documents[:5]) or "- (없음)"
+    evidence_lines = []
+    for idx, info in enumerate(extracted_infos[:5], start=1):
+        evidence_lines.append(
+            f"[문서 {idx}] 핵심={str(info.get('key_data', '')).strip()} / "
+            f"근거={str(info.get('evidence_or_grounds', '')).strip()} / "
+            f"기타={str(info.get('helpful_notes', '')).strip()}"
+        )
+    evidence_text = "\n".join(evidence_lines) if evidence_lines else "(없음)"
+
+    return f"""당신은 보험 가입자가 이해하기 쉽게 현재 상황을 설명하는 어시스턴트입니다.
+아래 정보를 바탕으로 '보험사가 왜 지급하지 않는 결론을 냈는지'를 쉬운 한국어로 설명하세요.
+
+[거절 통지서 텍스트]
+{denial_text[:3000] if denial_text else "(없음)"}
+
+[약관 검색 결과]
+{relevant_terms[:5000] if relevant_terms else "(없음)"}
+
+[현재 전략 요약]
+{plan[:1200] if plan else "(없음)"}
+
+[요청 서류 목록]
+{required_text}
+
+[추가 문서에서 추출한 정보]
+{evidence_text}
+
+작성 규칙:
+1) 보험사 주장(insurer_claim)과 사용자 상황(user_situation)을 먼저 분리해 적으세요.
+2) 약관 근거(policy_clauses)는 최대 3개만 고르고, 각 항목은 제목+짧은 요약(snippet)으로 작성하세요.
+3) 문서 근거(document_evidence)는 최대 3개만 고르고, source_index는 1부터 시작하세요.
+4) plain_explanation은 6~10문장으로, 쉬운 말로 작성하세요.
+5) 결론은 '현재 확보된 자료 기준'이라는 전제를 포함하세요.
+6) 근거가 부족하면 confidence를 low로 두세요.
+"""
+
+
+def _build_fallback_decision_explanation(state: dict) -> tuple[dict, str]:
+    denial_text = str(state.get("denial_statement_text", "")).strip()
+    relevant_terms = str(state.get("relevant_terms", "")).strip()
+    plan = str(state.get("plan", "")).strip()
+    extracted_infos = list(state.get("extracted_document_infos") or [])
+
+    clauses = _extract_clause_blocks(relevant_terms, limit=3)
+    doc_evidence = _extract_document_evidence(extracted_infos, limit=3)
+
+    user_situation = (
+        "제출된 거절 통지서와 추가 문서를 기준으로 현재 청구 상황을 정리했습니다."
+        if denial_text
+        else "거절 통지서 텍스트가 충분하지 않아 제한된 정보로 현재 상황을 정리했습니다."
+    )
+    insurer_claim = "보험사는 약관상 보장 요건에 맞지 않거나 면책 사유에 해당한다고 판단한 것으로 보입니다."
+    if denial_text:
+        insurer_claim = f"보험사는 통지서 내용에 근거해 지급 거절을 통보했습니다. ({denial_text[:120]})"
+
+    conclusion_reason = (
+        "약관 조항 해석과 추가 문서 근거를 종합하면, 보험사는 현재 자료 기준으로 지급 불가 방향 결론을 낸 상태입니다."
+    )
+
+    lines = [
+        "현재까지 제출된 자료를 기준으로 상황을 쉽게 정리해드리겠습니다.",
+        user_situation,
+        insurer_claim,
+    ]
+    if clauses:
+        lines.append(f"보험사는 약관 조항({clauses[0]['title']})을 근거로 지급 요건 미충족을 주장할 가능성이 큽니다.")
+    if doc_evidence:
+        lines.append(
+            f"추가 문서에서도 {doc_evidence[0]['key_data']} 같은 정보가 확인되어 보험사 판단 근거로 사용될 수 있습니다."
+        )
+    lines.append(conclusion_reason)
+    lines.append("즉, 현재 확보된 자료 기준으로는 보험사 쪽 결론이 지급하지 않는 방향으로 정리된 상태입니다.")
+
+    summary = {
+        "user_situation": user_situation,
+        "insurer_claim": insurer_claim,
+        "policy_clauses": clauses,
+        "document_evidence": doc_evidence,
+        "conclusion_reason": conclusion_reason,
+        "confidence": "medium" if clauses or doc_evidence else "low",
+    }
+    return summary, " ".join(lines)
+
+
+def explain_decision_node(state: dict, config: RunnableConfig) -> dict:
+    """
+    evidence_sufficient=True일 때 사용자 이해용 설명문을 생성한다.
+    읽기: denial_statement_text, relevant_terms, plan, extracted_document_infos
+    쓰기: decision_summary, decision_explanation
+    """
+    if not state.get("evidence_sufficient"):
+        return {}
+
+    fallback_summary, fallback_explanation = _build_fallback_decision_explanation(state)
+
+    configurable = (config or {}).get("configurable", {})
+    chat_client = configurable.get("chat_client")
+    if not chat_client:
+        return {
+            "decision_summary": fallback_summary,
+            "decision_explanation": fallback_explanation,
+        }
+
+    denial_text = str(state.get("denial_statement_text", "")).strip()
+    relevant_terms = str(state.get("relevant_terms", "")).strip()
+    plan = str(state.get("plan", "")).strip()
+    required_documents = list(state.get("required_documents") or [])
+    extracted_infos = list(state.get("extracted_document_infos") or [])
+
+    try:
+        structured_llm = chat_client.with_structured_output(DecisionExplanationResponse)
+        prompt = _build_decision_explanation_prompt(
+            denial_text=denial_text,
+            relevant_terms=relevant_terms,
+            plan=plan,
+            required_documents=required_documents,
+            extracted_infos=extracted_infos,
+        )
+        response: DecisionExplanationResponse = structured_llm.invoke([HumanMessage(content=prompt)])
+
+        policy_clauses = [
+            ClauseReference(title=item.title, snippet=item.snippet).model_dump()
+            for item in response.policy_clauses[:3]
+        ]
+        document_evidence = [
+            EvidenceReference(
+                source_index=item.source_index,
+                key_data=item.key_data,
+                evidence=item.evidence,
+            ).model_dump()
+            for item in response.document_evidence[:3]
+        ]
+
+        decision_summary = {
+            "user_situation": response.user_situation,
+            "insurer_claim": response.insurer_claim,
+            "policy_clauses": policy_clauses,
+            "document_evidence": document_evidence,
+            "conclusion_reason": response.conclusion_reason,
+            "confidence": response.confidence,
+        }
+        decision_explanation = (response.plain_explanation or "").strip() or fallback_explanation
+        return {
+            "decision_summary": decision_summary,
+            "decision_explanation": decision_explanation,
+        }
+    except Exception:
+        return {
+            "decision_summary": fallback_summary,
+            "decision_explanation": fallback_explanation,
+        }

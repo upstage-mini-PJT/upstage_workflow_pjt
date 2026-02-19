@@ -20,6 +20,7 @@ from core.schemas.analysis import (
     IssueTree,
     RecommendedAction,
     SuccessProbability,
+    UserGuidance,
 )
 from core.schemas.case_context import StructuredCase, normalize_structured_case
 from core.schemas.rag_contract import RAGRetrievalResult, RetrievalMode, ScoringTrace
@@ -92,6 +93,7 @@ class DataAnalysisState(TypedDict, total=False):
     quality_flags: list[str]
     llm_enrichment_trace: dict[str, Any]
     llm_raw_output: str
+    user_guidance: UserGuidance
 
     evidence_pack: list[dict[str, Any]]
     analysis_result: AnalysisResult
@@ -597,15 +599,17 @@ def _strategy_node(state: DataAnalysisState) -> DataAnalysisState:
         evidence = issue_evidence_map.get(issue_id, [])[:2]
         evidence_hint = ""
         if evidence:
-            refs = []
+            human_refs = []
             for ev in evidence:
-                doc_id = str(ev.get("doc_id", ""))
                 source = str(ev.get("source_type", "CASELAW")).upper()
+                doc_id = str(ev.get("doc_id", "")).strip()
+                title = str(ev.get("title", "")).strip() or "제목 정보 없음"
                 if not doc_id:
                     continue
-                refs.append(_canonical_doc_ref(source, doc_id))
-            if refs:
-                evidence_hint = f" 근거 참고({', '.join(refs)})."
+                ref_token = _canonical_doc_ref(source, doc_id)
+                human_refs.append(f"{_source_label_ko(source)}({ref_token}, {title})")
+            if human_refs:
+                evidence_hint = f" 근거: {', '.join(human_refs[:2])}."
 
         priority = "high" if gap.get("impact") == "high" else "medium"
         if f"{issue_id}:근거부족" in risk_flags:
@@ -615,7 +619,10 @@ def _strategy_node(state: DataAnalysisState) -> DataAnalysisState:
             RecommendedAction(
                 action_id=f"ACTION-{idx}",
                 title="증빙 보강 및 사유별 반박 정리",
-                detail=f"{gap.get('missing_evidence', '')} 자료를 보강하고 쟁점별 반박 논리를 정리.{evidence_hint}",
+                detail=(
+                    f"먼저 {gap.get('missing_evidence', '')}를 준비해 제출 자료를 보강하세요. "
+                    f"이 자료가 있으면 보험사 거절 사유에 대한 반박 근거를 더 명확히 제시할 수 있습니다.{evidence_hint}"
+                ),
                 priority=cast(Any, priority),
                 linked_issue_id=issue_id,
             )
@@ -626,7 +633,7 @@ def _strategy_node(state: DataAnalysisState) -> DataAnalysisState:
             RecommendedAction(
                 action_id=f"ACTION-{len(actions)+1}",
                 title="재심의 제출 완성도 점검",
-                detail="제출 문서 완성도 및 첨부 누락 여부를 최종 점검 후 즉시 제출",
+                detail="제출 전 체크리스트로 누락 문서와 금액/기간 오기를 점검한 뒤 바로 접수하세요. 제출 지연을 줄이면 절차상 불이익 가능성을 낮출 수 있습니다.",
                 priority=cast(Any, "medium" if risk_level != "AGGRESSIVE" else "high"),
                 linked_issue_id="ISSUE-1",
             )
@@ -636,7 +643,7 @@ def _strategy_node(state: DataAnalysisState) -> DataAnalysisState:
             RecommendedAction(
                 action_id=f"ACTION-{len(actions)+1}",
                 title="쟁점별 반박서 + 추가 증빙 병행",
-                detail="핵심 쟁점별 1페이지 반박서 작성과 보강 증빙 제출을 병행",
+                detail="핵심 쟁점마다 1페이지 반박서를 작성하고, 해당 쟁점을 뒷받침하는 증빙을 함께 제출하세요. 설명문과 증빙을 짝지어 내면 심사자가 판단하기 쉬워집니다.",
                 priority=cast(Any, "high" if risk_level in {"BALANCED", "AGGRESSIVE"} else "medium"),
                 linked_issue_id="ISSUE-1",
             )
@@ -646,7 +653,7 @@ def _strategy_node(state: DataAnalysisState) -> DataAnalysisState:
             RecommendedAction(
                 action_id=f"ACTION-{len(actions)+1}",
                 title="사전 질의/정리 후 재심의",
-                detail="증빙 우선 보강 후 사전 질의로 쟁점을 정리하고 재심의 제출",
+                detail="즉시 제출보다 먼저 부족한 증빙을 채우고, 사전 질의로 핵심 쟁점을 정리한 뒤 재심의를 진행하세요. 준비도를 높이면 불필요한 반려를 줄일 수 있습니다.",
                 priority=cast(Any, "high"),
                 linked_issue_id="ISSUE-1",
             )
@@ -757,6 +764,15 @@ def _source_type_to_public(source_type: str) -> str:
     return "WEB"
 
 
+def _source_label_ko(source_type: str) -> str:
+    st = str(source_type).upper()
+    if st == "CASELAW":
+        return "판례"
+    if st == "DISPUTE":
+        return "분쟁사례"
+    return "웹자료"
+
+
 def _canonical_doc_ref(source_type: str, doc_id: str) -> str:
     canonical_source = str(source_type).upper()
     sid = str(doc_id).strip()
@@ -789,6 +805,28 @@ def _ref_from_evidence(evidence_item: dict[str, Any]) -> str:
     return "CASELAW:UNKNOWN"
 
 
+def _title_from_evidence(evidence_item: dict[str, Any]) -> str:
+    title = str(evidence_item.get("evidence_title", "")).strip()
+    if title:
+        return title
+    provenance_list = evidence_item.get("provenance", [])
+    if provenance_list and isinstance(provenance_list, list):
+        first = provenance_list[0] if provenance_list else {}
+        if isinstance(first, dict):
+            ptitle = str(first.get("title", "")).strip()
+            if ptitle:
+                return ptitle
+    return "제목 정보 없음"
+
+
+def _humanized_ref_from_evidence(evidence_item: dict[str, Any]) -> str:
+    ref = _ref_from_evidence(evidence_item)
+    source_type = ref.split(":", 1)[0] if ":" in ref else "CASELAW"
+    label = _source_label_ko(source_type)
+    title = _title_from_evidence(evidence_item)
+    return f"근거: {label}({ref}, {title})"
+
+
 def _build_action_evidence_candidates(
     actions: list[RecommendedAction],
     evidence_pack: list[dict[str, Any]],
@@ -812,15 +850,19 @@ def _build_action_evidence_candidates(
 
 
 def _has_reference_token(text: str) -> bool:
-    return bool(re.search(r"\((CASELAW|DISPUTE|WEB):[^)]+\)", text))
+    return bool(re.search(r"(CASELAW|DISPUTE|WEB):[^),\\s]+", text))
 
 
 def _enforce_reference(detail: str, evidence_candidates: list[dict[str, Any]]) -> str:
     text = str(detail).strip()
-    if _has_reference_token(text):
+    if _has_reference_token(text) and "근거:" in text:
         return text
-    ref = _ref_from_evidence(evidence_candidates[0]) if evidence_candidates else "CASELAW:UNKNOWN"
-    return (text + f" ({ref})").strip()
+    if evidence_candidates:
+        guide = _humanized_ref_from_evidence(evidence_candidates[0])
+    else:
+        guide = "근거: 판례(CASELAW:UNKNOWN, 제목 정보 없음)"
+    connector = " " if text else ""
+    return (text + connector + guide).strip()
 
 
 def _ensure_reference_on_actions(
@@ -847,7 +889,8 @@ def _build_llm_messages(
             "You rewrite Korean action details for insurance re-review. "
             "Do not change action_id, priority, linked_issue_id. "
             "Return JSON only: {\"actions\":[{\"action_id\":\"...\",\"enriched_detail\":\"...\"}]}. "
-            "Each enriched_detail must include at least one evidence reference like (CASELAW:123). "
+            "Each enriched_detail must include at least one evidence reference in Korean humanized format "
+            "like '근거: 판례(CASELAW:123, 제목)'. "
             "No legal certainty claims."
         )
     else:
@@ -858,8 +901,9 @@ def _build_llm_messages(
             "Ground strictly on provided evidence only. "
             "Output JSON only with schema "
             "{\"actions\":[{\"action_id\":\"ACTION-1\",\"enriched_detail\":\"...\"}]}. "
-            "Each enriched_detail must include at least one provenance token in format "
-            "(CASELAW:doc_id) or (DISPUTE:doc_id) or (WEB:doc_id). "
+            "Each enriched_detail must include at least one provenance in Korean humanized format: "
+            "'근거: 판례(CASELAW:doc_id, 제목)' or '근거: 분쟁사례(DISPUTE:doc_id, 제목)' or "
+            "'근거: 웹자료(WEB:doc_id, 제목)'. "
             "Use concise Korean imperative style and avoid definitive legal advice."
         )
 
@@ -1056,6 +1100,61 @@ def _llm_action_enrichment_node(state: DataAnalysisState) -> DataAnalysisState:
     }
 
 
+def _build_user_guidance_node(state: DataAnalysisState) -> DataAnalysisState:
+    band = str(state.get("success_probability_public", {}).get("band", "LOW"))
+    actions = list(state.get("recommended_actions", []))
+    evidence_pack = list(state.get("evidence_pack", []))
+    issue_count = len(state.get("issue_tree", {}).get("nodes", []))
+
+    if band == "HIGH":
+        plain_summary = "현재 자료 기준으로 재심의 진행 가능성이 비교적 높습니다. 제출 완성도를 높여 신속히 접수하는 전략이 유리합니다."
+    elif band == "MEDIUM":
+        plain_summary = "현재는 보완과 제출을 병행해야 하는 단계입니다. 핵심 쟁점별 반박과 증빙 연결이 중요합니다."
+    else:
+        plain_summary = "현재 자료만으로는 성공 가능성이 낮은 편입니다. 먼저 핵심 증빙을 보강한 뒤 재심의를 준비하는 것이 좋습니다."
+
+    next_steps: list[str] = []
+    for idx, action in enumerate(actions[:5], start=1):
+        title = str(action.get("title", "")).strip() or f"액션 {idx}"
+        detail = str(action.get("detail", "")).strip()
+        cleaned_detail = re.sub(r"\s+", " ", detail)
+        next_steps.append(f"{idx}. {title} - {cleaned_detail}")
+
+    evidence_guide: list[dict[str, Any]] = []
+    seen_refs: set[str] = set()
+    for item in evidence_pack:
+        ref_token = _ref_from_evidence(item)
+        if not ref_token or ref_token in seen_refs:
+            continue
+        seen_refs.add(ref_token)
+        source_type = ref_token.split(":", 1)[0] if ":" in ref_token else "CASELAW"
+        source_label = _source_label_ko(source_type)
+        title = _title_from_evidence(item)
+        summary = str(item.get("summary", "")).strip()
+        why = summary[:120] if summary else "이 근거는 해당 쟁점의 사실관계와 유사해 반박 논리를 보강하는 데 사용됩니다."
+        evidence_guide.append(
+            {
+                "ref_token": ref_token,
+                "source_label": source_label,
+                "title": title,
+                "why_relevant": why,
+            }
+        )
+        if len(evidence_guide) >= 5:
+            break
+
+    if not next_steps:
+        next_steps = ["1. 추가 증빙과 거절사유를 먼저 대조해 누락 자료를 확인하세요."]
+
+    user_guidance = UserGuidance(
+        plain_summary=f"{plain_summary} (핵심 쟁점 {issue_count}개, 근거 {len(evidence_pack)}건)",
+        next_steps=next_steps,
+        evidence_guide=evidence_guide,
+        disclaimer="본 결과는 재심의 준비를 돕기 위한 참고 정보이며, 최종 판단은 담당 전문가 검토가 필요합니다.",
+    )
+    return {"user_guidance": user_guidance}
+
+
 def _finalize_node(state: DataAnalysisState) -> DataAnalysisState:
     result = AnalysisResult(
         issue_tree=state.get("issue_tree", IssueTree(root_title="보험금 부지급 재심의 쟁점", nodes=[])),
@@ -1071,6 +1170,15 @@ def _finalize_node(state: DataAnalysisState) -> DataAnalysisState:
             ),
         ),
         evidence_pack=state.get("evidence_pack", []),
+        user_guidance=state.get(
+            "user_guidance",
+            UserGuidance(
+                plain_summary="근거 정보가 제한적이므로 우선 증빙 보강부터 진행하세요.",
+                next_steps=["1. 필수 증빙을 먼저 확보한 뒤 재심의 전략을 다시 점검하세요."],
+                evidence_guide=[],
+                disclaimer="본 결과는 참고용입니다. 최종 판단은 전문가와 함께 진행하세요.",
+            ),
+        ),
     )
     return {"analysis_result": result}
 
@@ -1090,6 +1198,7 @@ def build_graph() -> Any:
     graph.add_node("package_evidence", _package_evidence_node)
     graph.add_node("synthesize_analysis", _synthesize_analysis_node)
     graph.add_node("llm_action_enrichment", _llm_action_enrichment_node)
+    graph.add_node("build_user_guidance", _build_user_guidance_node)
     graph.add_node("finalize", _finalize_node)
 
     graph.add_edge(START, "build_query")
@@ -1105,7 +1214,8 @@ def build_graph() -> Any:
     graph.add_edge("strategy", "package_evidence")
     graph.add_edge("package_evidence", "synthesize_analysis")
     graph.add_edge("synthesize_analysis", "llm_action_enrichment")
-    graph.add_edge("llm_action_enrichment", "finalize")
+    graph.add_edge("llm_action_enrichment", "build_user_guidance")
+    graph.add_edge("build_user_guidance", "finalize")
     graph.add_edge("finalize", END)
     return graph.compile()
 

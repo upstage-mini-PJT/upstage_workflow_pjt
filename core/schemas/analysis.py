@@ -49,6 +49,20 @@ class EvidencePackItem(TypedDict, total=False):
     provenance: list[Provenance]
 
 
+class EvidenceGuideItem(TypedDict, total=False):
+    ref_token: str
+    source_label: Literal["판례", "분쟁사례", "웹자료"]
+    title: str
+    why_relevant: str
+
+
+class UserGuidance(TypedDict, total=False):
+    plain_summary: str
+    next_steps: list[str]
+    evidence_guide: list[EvidenceGuideItem]
+    disclaimer: str
+
+
 class RAGItemProvenance(TypedDict, total=False):
     index_name: str
     retrieved_at: str
@@ -97,3 +111,4 @@ class AnalysisResult(TypedDict, total=False):
     recommended_actions: list[RecommendedAction]
     success_probability: SuccessProbability
     evidence_pack: list[EvidencePackItem]
+    user_guidance: UserGuidance

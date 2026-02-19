@@ -414,6 +414,30 @@ def main() -> None:
         detail = str(action.get("detail", "")).strip()
         print(f"  {idx}. {title} :: {detail[:120]}")
 
+    user_guidance = analysis_result.get("user_guidance", {})
+    if isinstance(user_guidance, dict) and user_guidance:
+        print("\n=== User Guidance ===")
+        plain_summary = str(user_guidance.get("plain_summary", "")).strip()
+        if plain_summary:
+            print(f"- 요약: {plain_summary}")
+
+        next_steps = user_guidance.get("next_steps", [])
+        if isinstance(next_steps, list) and next_steps:
+            print("- 바로 할 일:")
+            for step in next_steps[:3]:
+                print(f"  {str(step).strip()}")
+
+        evidence_guide = user_guidance.get("evidence_guide", [])
+        if isinstance(evidence_guide, list) and evidence_guide:
+            print("- 근거 설명:")
+            for item in evidence_guide[:3]:
+                if not isinstance(item, dict):
+                    continue
+                ref_token = str(item.get("ref_token", "")).strip()
+                source_label = str(item.get("source_label", "")).strip()
+                title = str(item.get("title", "")).strip()
+                print(f"  - {ref_token} -> {source_label} / {title}")
+
     output_path = Path(args.output).resolve() if args.output else _default_output_path().resolve()
     global_state = {
         "thread_id": thread_id,

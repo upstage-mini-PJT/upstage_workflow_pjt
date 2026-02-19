@@ -28,8 +28,17 @@ uv run python -m main --mock-manifest data/mock_documents/hyundai_senior_silson_
 결과:
 - 콘솔에 Step3 요약 출력
 - 콘솔에 Step2 요약(`decision_summary`, `decision_explanation` 일부) 출력
+- 콘솔에 사용자 가이드(`plain_summary`, `next_steps`, `evidence_guide`) 출력
 - `outputs/run_YYYYMMDD_HHMMSS.json` 저장
 - 저장 JSON에는 `onboarding_state`, `structured_case`, `analysis_result` 포함
+
+`analysis_result` 주요 필드:
+- 기존 5키 유지: `issue_tree`, `gap_analysis`, `recommended_actions`, `success_probability`, `evidence_pack`
+- 추가(optional): `user_guidance`
+  - `plain_summary`: 비전문 사용자용 한눈 요약
+  - `next_steps`: 바로 실행할 단계별 행동
+  - `evidence_guide`: 근거 토큰(`CASELAW:...`)의 의미/제목/관련성 설명
+  - `disclaimer`: 참고용 안내 문구
 
 ## 개별 실행
 

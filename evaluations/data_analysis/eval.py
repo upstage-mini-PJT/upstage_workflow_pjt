@@ -4,8 +4,12 @@ import json
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
+
 from agents.data_analysis_agent.agent import run
 from evaluations.data_analysis.metrics import band_validity, provenance_coverage, schema_completeness
+
+load_dotenv(dotenv_path=".env")
 
 
 def _load_dataset(path: Path) -> list[dict[str, Any]]:
@@ -37,7 +41,14 @@ def evaluate(dataset_path: str = "evaluations/data_analysis/dataset.jsonl") -> d
     expected_hits = 0
 
     for row in dataset:
-        result = run(row.get("structured_case", {}))
+        result = run(
+            row.get("structured_case", {}),
+            analysis_options={
+                "entrypoint": "eval",
+                "trace_tags": ["step3", "eval"],
+                "trace_metadata": {"dataset_path": str(dataset_path)},
+            },
+        )
         schema_scores.append(schema_completeness(result))
         provenance_scores.append(provenance_coverage(result))
 

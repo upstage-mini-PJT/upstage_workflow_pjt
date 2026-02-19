@@ -1,6 +1,6 @@
 {
   "case_id": "hyundai_senior_silson_case",
-  "description": "양찬우 고객(계약번호 2024-NS-556677) 질병입원 의료비 지급거절 샘플 기반 mock 문서 세트",
+  "description": "양찬우 고객(계약번호 2024-NS-556677) 질병입원 의료비 분쟁 시나리오 기반 mock 문서 세트",
   "contract_number": "2024-NS-556677",
   "join_date": "20240301",
   "policy_date": "20240101",
@@ -14,6 +14,7 @@
     "operation_record": "data/mock_documents/hyundai_senior_silson_case/operation_record.md",
     "imaging_pathology_reports": "data/mock_documents/hyundai_senior_silson_case/imaging_pathology_reports.md",
     "billing_statement": "data/mock_documents/hyundai_senior_silson_case/billing_statement.md",
+    "insurer_payment_calculation": "data/mock_documents/hyundai_senior_silson_case/insurer_payment_calculation.md",
     "nhis_statement": "data/mock_documents/hyundai_senior_silson_case/nhis_statement.md",
     "accident_statement": "data/mock_documents/hyundai_senior_silson_case/accident_statement.md",
     "police_or_fire_report": "data/mock_documents/hyundai_senior_silson_case/police_or_fire_report.md",

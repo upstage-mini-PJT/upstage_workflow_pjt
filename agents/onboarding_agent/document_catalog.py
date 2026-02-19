@@ -61,6 +61,12 @@ DOCUMENT_CATALOG: list[dict[str, object]] = [
         "issue_types": ["proof", "code_mismatch"],
     },
     {
+        "id": "insurer_payment_calculation",
+        "name": "보험금 계산서(보험사 산정 내역)",
+        "purpose": "자기부담금/한도(연간·1회당)/보상비율/제외항목 등 보험사 산식과 최종 지급액 검증",
+        "issue_types": ["common", "proof", "period", "exclusion", "code_mismatch"],
+    },
+    {
         "id": "nhis_statement",
         "name": "건강보험 급여/비급여 확인서",
         "purpose": "급여·비급여 구분 및 본인부담 범위 확인",

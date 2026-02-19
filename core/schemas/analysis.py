@@ -34,7 +34,6 @@ class RecommendedAction(TypedDict, total=False):
 
 
 class SuccessProbability(TypedDict, total=False):
-    score: int
     band: Literal["LOW", "MEDIUM", "HIGH"]
     positive_drivers: list[str]
     negative_drivers: list[str]
@@ -98,5 +97,3 @@ class AnalysisResult(TypedDict, total=False):
     recommended_actions: list[RecommendedAction]
     success_probability: SuccessProbability
     evidence_pack: list[EvidencePackItem]
-    rag_result: RAGRetrievalResult
-    scoring_trace: ScoringTrace

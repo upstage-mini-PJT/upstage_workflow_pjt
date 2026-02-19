@@ -22,6 +22,7 @@ class DecisionExplanationNodeTests(unittest.TestCase):
                 "고의 또는 약관상 면책 사유에 해당하는 경우 보장하지 않습니다."
             ),
             "plan": "현재 자료 기준 보험사 측 면책 주장 근거를 확인한 상태입니다.",
+            "required_documents": ["진단서/의사 소견서"],
             "extracted_document_infos": [
                 {
                     "key_data": "진단명: 특정 상해",
@@ -39,6 +40,7 @@ class DecisionExplanationNodeTests(unittest.TestCase):
         self.assertGreaterEqual(len(result["decision_summary"]["policy_clauses"]), 1)
         self.assertIn("약관 근거", result["decision_explanation"])
         self.assertIn("[Section:", result["decision_explanation"])
+        self.assertIn("[진단서/의사 소견서]", result["decision_explanation"])
         self.assertIn("AI가 만든 참고용", result["decision_explanation"])
         self.assertIn("최종 판단과 결정의 책임", result["decision_explanation"])
         self.assertNotIn("양찬우", result["decision_explanation"])

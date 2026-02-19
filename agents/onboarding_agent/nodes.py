@@ -5,7 +5,9 @@ onboarding_agent용 그래프 노드 정의.
 - workflow/builder.py: 여기서 노드를 import 해서 메인 그래프에 add_node
 """
 
+from time import perf_counter, sleep
 from typing import Any
+import os
 import re
 
 from langchain_core.messages import HumanMessage
@@ -19,6 +21,11 @@ from agents.onboarding_agent.document_catalog import (
     document_display_names,
     document_request_items,
     normalize_required_document_ids,
+)
+from agents.onboarding_agent.decision_diagnostics import (
+    append_trace,
+    build_trace_entry,
+    diagnostics_enabled,
 )
 from agents.onboarding_agent.schemas import (
     DecisionExplanationResponse,
@@ -38,14 +45,135 @@ def _llm_from_config(config: RunnableConfig | None):
     return configurable.get("chat_client")
 
 
-def _invoke_structured_or_fallback(chat_client: Any, schema: Any, prompt: str, fallback: Any):
-    if not chat_client:
-        return fallback
+def _env_bool(name: str, default: bool) -> bool:
+    raw = str(os.getenv(name, str(default))).strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
+def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
+    raw = str(os.getenv(name, str(default))).strip()
     try:
-        structured_llm = chat_client.with_structured_output(schema)
-        return structured_llm.invoke([HumanMessage(content=prompt)])
-    except Exception:
-        return fallback
+        value = int(raw)
+    except ValueError:
+        value = default
+    return max(value, minimum)
+
+
+def _env_float(name: str, default: float, *, minimum: float = 0.0) -> float:
+    raw = str(os.getenv(name, str(default))).strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        value = default
+    return max(value, minimum)
+
+
+def _is_retryable_llm_error(exc: Exception) -> bool:
+    name = type(exc).__name__.lower()
+    message = str(exc).lower()
+    retryable_names = (
+        "apiconnectionerror",
+        "ratelimiterror",
+        "timeout",
+        "serviceunavailable",
+    )
+    retryable_fragments = (
+        "connection error",
+        "timed out",
+        "timeout",
+        "rate limit",
+        "temporarily unavailable",
+        "service unavailable",
+        "try again",
+    )
+    return any(fragment in name for fragment in retryable_names) or any(
+        fragment in message for fragment in retryable_fragments
+    )
+
+
+def _invoke_retry_enabled() -> bool:
+    strict = _env_bool("ONBOARDING_STRICT_LLM_MODE", False)
+    retry_on_connection = _env_bool("ONBOARDING_LLM_RETRY_ON_CONNECTION", False)
+    return strict or retry_on_connection
+
+
+def _invoke_structured_with_meta(chat_client: Any, schema: Any, prompt: str, fallback: Any) -> tuple[Any, bool]:
+    if not chat_client:
+        if _env_bool("ONBOARDING_STRICT_LLM_MODE", False):
+            raise RuntimeError("chat_client is required when ONBOARDING_STRICT_LLM_MODE=true")
+        return fallback, True
+
+    structured_llm = chat_client.with_structured_output(schema)
+    strict_mode = _env_bool("ONBOARDING_STRICT_LLM_MODE", False)
+    retry_enabled = _invoke_retry_enabled()
+    wait_forever = _env_bool("ONBOARDING_LLM_WAIT_FOREVER", False)
+    max_attempts = _env_int("ONBOARDING_LLM_MAX_ATTEMPTS", 40, minimum=1)
+    max_wait_sec = _env_float("ONBOARDING_LLM_MAX_WAIT_SEC", 1800.0, minimum=1.0)
+    backoff_sec = _env_float("ONBOARDING_LLM_RETRY_BACKOFF_SEC", 3.0, minimum=0.1)
+
+    started = perf_counter()
+    failed_attempts = 0
+
+    while True:
+        try:
+            return structured_llm.invoke([HumanMessage(content=prompt)]), False
+        except Exception as exc:
+            failed_attempts += 1
+            elapsed_sec = perf_counter() - started
+            retryable = _is_retryable_llm_error(exc)
+            within_retry_budget = wait_forever or (
+                failed_attempts < max_attempts and elapsed_sec < max_wait_sec
+            )
+            if retry_enabled and retryable and within_retry_budget:
+                # Keep waiting on transient infra errors during strict eval runs.
+                sleep(min(backoff_sec * (2 ** min(failed_attempts - 1, 4)), 30.0))
+                continue
+            if strict_mode:
+                raise
+            return fallback, True
+
+
+def _invoke_structured_or_fallback(chat_client: Any, schema: Any, prompt: str, fallback: Any):
+    response, _ = _invoke_structured_with_meta(chat_client, schema, prompt, fallback)
+    return response
+
+
+def _record_trace(
+    state: dict,
+    *,
+    step_id: str,
+    input_obj: Any,
+    output_obj: Any,
+    rationale_summary: str,
+    fallback_used: bool = False,
+    latency_ms: int | None = None,
+    evidence_refs: list[str] | None = None,
+    flags: list[str] | None = None,
+    meta: dict[str, Any] | None = None,
+) -> dict:
+    if not diagnostics_enabled():
+        return {}
+    entry = build_trace_entry(
+        step_id=step_id,
+        input_obj=input_obj,
+        output_obj=output_obj,
+        rationale_summary=rationale_summary,
+        evidence_refs=evidence_refs,
+        fallback_used=fallback_used,
+        latency_ms=latency_ms,
+        flags=flags,
+        meta=meta,
+    )
+    decision_trace, step_latency_ms, quality_flags = append_trace(state, entry)
+    return {
+        "decision_trace": decision_trace,
+        "step_latency_ms": step_latency_ms,
+        "quality_flags": quality_flags,
+    }
 
 
 def _default_issue_plan(denial_text: str) -> tuple[list[str], list[dict[str, object]]]:
@@ -139,6 +267,7 @@ def issue_planning_node(state: dict, config: RunnableConfig) -> dict:
     입력 텍스트 기반으로 이슈 가설과 검색 계획(query_plan)을 만든다.
     읽기: denial_statement_text / 쓰기: issue_hypotheses, query_plan
     """
+    started = perf_counter()
     denial_text = str(state.get("denial_statement_text", "")).strip()
     fallback_hypotheses, fallback_query_plan = _default_issue_plan(denial_text)
     fallback = IssuePlanningResponse(
@@ -148,7 +277,7 @@ def issue_planning_node(state: dict, config: RunnableConfig) -> dict:
 
     chat_client = _llm_from_config(config)
     prompt = _build_issue_planning_prompt(denial_text)
-    response = _invoke_structured_or_fallback(chat_client, IssuePlanningResponse, prompt, fallback)
+    response, fallback_used = _invoke_structured_with_meta(chat_client, IssuePlanningResponse, prompt, fallback)
 
     issue_hypotheses = [str(item).strip() for item in (response.issue_hypotheses or []) if str(item).strip()]
     if not issue_hypotheses:
@@ -160,10 +289,26 @@ def issue_planning_node(state: dict, config: RunnableConfig) -> dict:
     if not query_plan:
         query_plan = fallback_query_plan
 
-    return {
+    result = {
         "issue_hypotheses": issue_hypotheses[:6],
         "query_plan": query_plan[:6],
     }
+    latency_ms = int((perf_counter() - started) * 1000)
+    result.update(
+        _record_trace(
+            state,
+            step_id="issue_planning",
+            input_obj={"denial_text_length": len(denial_text)},
+            output_obj={
+                "issue_hypotheses": result["issue_hypotheses"],
+                "query_plan_count": len(result["query_plan"]),
+            },
+            rationale_summary="거절 통지서 기반 이슈 가설 및 검색 질의 계획 생성",
+            fallback_used=fallback_used,
+            latency_ms=latency_ms,
+        )
+    )
+    return result
 
 
 def _build_issue_planning_prompt(denial_text: str) -> str:
@@ -197,11 +342,12 @@ must_keywords: {intent.get("must_keywords", [])}
 """
 
 
-def _generate_hyde_queries(chat_client: Any, denial_text: str, intent: dict[str, object]) -> list[str]:
+def _generate_hyde_queries(chat_client: Any, denial_text: str, intent: dict[str, object]) -> tuple[list[str], bool, int]:
+    started = perf_counter()
     seed = str(intent.get("query_seed", "")).strip()
     fallback = HyDEQueryResponse(hyde_queries=[seed] if seed else [])
     prompt = _build_hyde_query_prompt(denial_text, intent)
-    response = _invoke_structured_or_fallback(chat_client, HyDEQueryResponse, prompt, fallback)
+    response, fallback_used = _invoke_structured_with_meta(chat_client, HyDEQueryResponse, prompt, fallback)
     queries = [str(item).strip() for item in (response.hyde_queries or []) if str(item).strip()]
     if not queries and seed:
         queries = [seed]
@@ -214,7 +360,8 @@ def _generate_hyde_queries(chat_client: Any, denial_text: str, intent: dict[str,
             continue
         seen.add(key)
         deduped.append(query[:300])
-    return deduped[:2]
+    latency_ms = int((perf_counter() - started) * 1000)
+    return deduped[:2], fallback_used, latency_ms
 
 
 def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
@@ -223,13 +370,25 @@ def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
     읽기: denial_statement_text, query_plan, policy_date
     쓰기: relevant_terms, retrieval_queries, retrieval_candidates
     """
+    started = perf_counter()
     denial_text = str(state.get("denial_statement_text", "")).strip()
     if not denial_text:
-        return {
+        result = {
             "relevant_terms": "",
             "retrieval_queries": [],
             "retrieval_candidates": [],
         }
+        result.update(
+            _record_trace(
+                state,
+                step_id="retrieve_terms",
+                input_obj={"denial_text_length": 0},
+                output_obj={"retrieval_queries_count": 0, "retrieval_candidates_count": 0},
+                rationale_summary="거절 통지서 텍스트 없음으로 약관 검색 생략",
+                latency_ms=int((perf_counter() - started) * 1000),
+            )
+        )
+        return result
 
     configurable = (config or {}).get("configurable", {})
     chat_client = _llm_from_config(config)
@@ -248,9 +407,16 @@ def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
     retrieval_queries: list[str] = []
     seen_query_keys: set[str] = set()
     must_keywords_by_query: list[list[str]] = []
+    hyde_fallback_count = 0
+    hyde_call_count = 0
+    hyde_latency_total_ms = 0
 
     for item in query_plan[:4]:
-        hyde_queries = _generate_hyde_queries(chat_client, denial_text, item)
+        hyde_queries, hyde_fallback_used, hyde_latency_ms = _generate_hyde_queries(chat_client, denial_text, item)
+        hyde_call_count += 1
+        hyde_latency_total_ms += hyde_latency_ms
+        if hyde_fallback_used:
+            hyde_fallback_count += 1
         if not hyde_queries:
             hyde_queries = [str(item.get("query_seed", "")).strip()]
         for query in hyde_queries:
@@ -282,11 +448,34 @@ def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
             retrieve_terms_candidates,
         )
     except Exception:
-        return {
+        result = {
             "relevant_terms": "",
             "retrieval_queries": retrieval_queries,
             "retrieval_candidates": [],
         }
+        result.update(
+            _record_trace(
+                state,
+                step_id="retrieve_terms",
+                input_obj={
+                    "query_plan_count": len(query_plan),
+                    "policy_date": policy_date,
+                },
+                output_obj={
+                    "retrieval_queries_count": len(retrieval_queries),
+                    "retrieval_candidates_count": 0,
+                },
+                rationale_summary="약관 조회 도구 import 실패로 검색 결과 없음",
+                fallback_used=True,
+                latency_ms=int((perf_counter() - started) * 1000),
+                meta={
+                    "hyde_call_count": hyde_call_count,
+                    "hyde_fallback_count": hyde_fallback_count,
+                    "hyde_latency_total_ms": hyde_latency_total_ms,
+                },
+            )
+        )
+        return result
 
     try:
         ready_vectordb = ensure_vectordb_ready(policy_vectordb)
@@ -323,11 +512,38 @@ def retrieve_terms_node(state: dict, config: RunnableConfig) -> dict:
         }
         for item in ranked_candidates[:8]
     ]
-    return {
+    result = {
         "relevant_terms": relevant_terms or "",
         "retrieval_queries": retrieval_queries,
         "retrieval_candidates": retrieval_candidates,
     }
+    flags: list[str] = []
+    if hyde_fallback_count > 0:
+        flags = ["fallback:hyde_query_generation"]
+    result.update(
+        _record_trace(
+            state,
+            step_id="retrieve_terms",
+            input_obj={
+                "query_plan_count": len(query_plan),
+                "policy_date": policy_date,
+            },
+            output_obj={
+                "retrieval_queries_count": len(retrieval_queries),
+                "retrieval_candidates_count": len(retrieval_candidates),
+                "top_source_ids": [str(item.get("source_id", "")) for item in retrieval_candidates[:5]],
+            },
+            rationale_summary="HyDE 확장 질의와 다중 검색 결과를 집계하여 약관 후보 생성",
+            latency_ms=int((perf_counter() - started) * 1000),
+            flags=flags,
+            meta={
+                "hyde_call_count": hyde_call_count,
+                "hyde_fallback_count": hyde_fallback_count,
+                "hyde_latency_total_ms": hyde_latency_total_ms,
+            },
+        )
+    )
+    return result
 
 
 def final_planning_node(state: dict, config: RunnableConfig) -> dict:
@@ -336,6 +552,7 @@ def final_planning_node(state: dict, config: RunnableConfig) -> dict:
     읽기: denial_statement_text, relevant_terms, issue_hypotheses
     쓰기: plan, required_document_ids, required_documents, final_plan_confidence
     """
+    started = perf_counter()
     denial_text = str(state.get("denial_statement_text", "")).strip()
     relevant_terms = str(state.get("relevant_terms", "")).strip()
     issue_hypotheses = list(state.get("issue_hypotheses") or [])
@@ -360,22 +577,46 @@ def final_planning_node(state: dict, config: RunnableConfig) -> dict:
         issue_hypotheses=issue_hypotheses,
         retrieval_candidates=retrieval_candidates,
     )
-    response = _invoke_structured_or_fallback(chat_client, FinalPlanningResponse, prompt, fallback)
+    response, fallback_used = _invoke_structured_with_meta(chat_client, FinalPlanningResponse, prompt, fallback)
     required_document_ids = normalize_required_document_ids(
         [str(item).strip() for item in (response.required_document_ids or []) if str(item).strip()],
         max_items=3,
     )
+    flags: list[str] = []
     if not required_document_ids:
         required_document_ids = list(fallback.required_document_ids)
+        flags.append("fallback:required_document_ids")
 
     required_documents = document_display_names(required_document_ids)
 
-    return {
+    result = {
         "plan": str(response.plan).strip() or fallback.plan,
         "required_document_ids": required_document_ids,
         "required_documents": required_documents,
         "final_plan_confidence": response.confidence,
     }
+    result.update(
+        _record_trace(
+            state,
+            step_id="final_planning",
+            input_obj={
+                "denial_text_length": len(denial_text),
+                "relevant_terms_length": len(relevant_terms),
+                "issue_hypotheses_count": len(issue_hypotheses),
+                "retrieval_candidates_count": len(retrieval_candidates),
+            },
+            output_obj={
+                "required_document_ids": required_document_ids,
+                "required_documents": required_documents,
+                "final_plan_confidence": response.confidence,
+            },
+            rationale_summary="약관 검색 결과와 이슈 가설을 반영해 최종 계획 및 요청서류 선정",
+            fallback_used=fallback_used,
+            latency_ms=int((perf_counter() - started) * 1000),
+            flags=flags,
+        )
+    )
+    return result
 
 
 def planning_node(state: dict, config: RunnableConfig) -> dict:
@@ -400,6 +641,39 @@ def request_additional_documents_node(state: dict, config: RunnableConfig) -> di
 
     if not required_ids and not required:
         return {"additional_document_paths": []}
+
+    configurable = (config or {}).get("configurable", {})
+    auto_resume = bool(configurable.get("test_auto_resume_documents", False))
+    raw_mock_map = configurable.get("mock_document_map") or {}
+    mock_map = raw_mock_map if isinstance(raw_mock_map, dict) else {}
+    if auto_resume and required_ids:
+        current_round = int(state.get("auto_resume_round", 0) or 0)
+        max_rounds = int(configurable.get("test_auto_resume_max_rounds", 2) or 2)
+        if current_round >= max_rounds:
+            flags = [str(item).strip() for item in (state.get("quality_flags") or []) if str(item).strip()]
+            if "auto_resume_exhausted" not in flags:
+                flags.append("auto_resume_exhausted")
+            return {
+                "additional_document_paths": [],
+                "auto_resume_round": current_round,
+                "auto_resume_exhausted": True,
+                "quality_flags": flags,
+            }
+
+        resolved_paths: list[str] = []
+        missing: list[str] = []
+        for doc_id in required_ids:
+            mapped = str(mock_map.get(doc_id, "")).strip()
+            if not mapped:
+                missing.append(doc_id)
+                continue
+            resolved_paths.append(mapped)
+        if not missing and resolved_paths:
+            return {
+                "additional_document_paths": resolved_paths,
+                "auto_resume_round": current_round + 1,
+                "auto_resume_exhausted": False,
+            }
 
     request_items = document_request_items(required_ids)
     message_lines = [f"- {name}" for name in required] if required else [f"- {item['name']}" for item in request_items]
@@ -482,36 +756,92 @@ def parse_and_extract_node(state: dict, config: RunnableConfig) -> dict:
     additional_document_paths 각 경로를 DP로 파싱한 뒤, 문서별로 LLM에 넣어 필요한 데이터·근거만 추출해 state에 저장.
     읽기: additional_document_paths, (선택) plan, required_documents / 쓰기: extracted_document_infos
     """
+    started = perf_counter()
     paths = state.get("additional_document_paths") or []
     if not paths:
-        return {"extracted_document_infos": []}
+        result = {"extracted_document_infos": []}
+        result.update(
+            _record_trace(
+                state,
+                step_id="parse_and_extract",
+                input_obj={"paths_count": 0},
+                output_obj={"extracted_count": 0, "non_empty_evidence_count": 0},
+                rationale_summary="추가 문서 경로가 없어 정보 추출 생략",
+                latency_ms=int((perf_counter() - started) * 1000),
+            )
+        )
+        return result
 
     configurable = (config or {}).get("configurable", {})
     chat_client = configurable.get("chat_client")
     plan = state.get("plan") or ""
-    required = state.get("required_documents") or []
+    required = [str(item).strip() for item in (state.get("required_documents") or []) if str(item).strip()]
 
     extracted: list[dict] = []
-    for path in paths:
+    fallback_count = 0
+    for idx, path in enumerate(paths, start=1):
+        source_name = required[idx - 1] if idx - 1 < len(required) else f"문서 {idx}"
         try:
             raw_text = parse_document(path)
         except (FileNotFoundError, OSError):
             raw_text = ""
         if not raw_text:
+            fallback_count += 1
             extracted.append(
-                {"key_data": "", "evidence_or_grounds": "", "helpful_notes": "(파싱 실패 또는 빈 문서)"}
+                {
+                    "source_name": source_name,
+                    "key_data": "",
+                    "evidence_or_grounds": "",
+                    "helpful_notes": "(파싱 실패 또는 빈 문서)",
+                }
             )
             continue
-        if not chat_client:
-            extracted.append(
-                {"key_data": raw_text[:500], "evidence_or_grounds": "", "helpful_notes": ""}
-            )
-            continue
-        structured_llm = chat_client.with_structured_output(ExtractedDocumentInfo)
+        fallback = ExtractedDocumentInfo(
+            key_data=raw_text[:500],
+            evidence_or_grounds="",
+            helpful_notes="(LLM 추출 실패 fallback)",
+        )
         prompt = _build_extract_prompt(raw_text, plan, required)
-        response: ExtractedDocumentInfo = structured_llm.invoke([HumanMessage(content=prompt)])
-        extracted.append(response.model_dump())
-    return {"extracted_document_infos": extracted}
+        response, fallback_used = _invoke_structured_with_meta(
+            chat_client, ExtractedDocumentInfo, prompt, fallback
+        )
+        if fallback_used:
+            fallback_count += 1
+        extracted.append(
+            {
+                "source_name": source_name,
+                **(response.model_dump() if hasattr(response, "model_dump") else fallback.model_dump()),
+            }
+        )
+    non_empty_evidence_count = 0
+    for item in extracted:
+        if not isinstance(item, dict):
+            continue
+        key_data = str(item.get("key_data", "")).strip()
+        evidence = str(item.get("evidence_or_grounds", "")).strip()
+        if key_data or evidence:
+            non_empty_evidence_count += 1
+
+    result = {"extracted_document_infos": extracted}
+    result.update(
+        _record_trace(
+            state,
+            step_id="parse_and_extract",
+            input_obj={
+                "paths_count": len(paths),
+                "required_documents_count": len(required),
+            },
+            output_obj={
+                "extracted_count": len(extracted),
+                "non_empty_evidence_count": non_empty_evidence_count,
+            },
+            rationale_summary="추가 문서 파싱 후 핵심 데이터/근거 추출",
+            fallback_used=fallback_count > 0,
+            latency_ms=int((perf_counter() - started) * 1000),
+            meta={"fallback_count": fallback_count},
+        )
+    )
+    return result
 
 
 def _build_extract_prompt(doc_text: str, plan: str, required_documents: list) -> str:
@@ -542,21 +872,61 @@ def evaluate_sufficiency_node(state: dict, config: RunnableConfig) -> dict:
     추출된 정보를 합쳐서 분쟁 신청을 위한 근거가 충분한지 판단.
     읽기: plan, required_documents, extracted_document_infos / 쓰기: evidence_sufficient
     """
+    started = perf_counter()
     infos = state.get("extracted_document_infos") or []
     if not infos:
-        return {"evidence_sufficient": False}
+        result = {"evidence_sufficient": False}
+        result.update(
+            _record_trace(
+                state,
+                step_id="evaluate_sufficiency",
+                input_obj={"extracted_document_count": 0},
+                output_obj={"evidence_sufficient": False},
+                rationale_summary="추출 문서 정보가 없어 근거 부족으로 판정",
+                latency_ms=int((perf_counter() - started) * 1000),
+            )
+        )
+        return result
 
     configurable = (config or {}).get("configurable", {})
     chat_client = configurable.get("chat_client")
-    if not chat_client:
-        return {"evidence_sufficient": False}
 
     plan = state.get("plan") or ""
     required = state.get("required_documents") or []
     prompt = _build_sufficiency_prompt(plan, required, infos)
-    structured_llm = chat_client.with_structured_output(SufficiencyResponse)
-    response: SufficiencyResponse = structured_llm.invoke([HumanMessage(content=prompt)])
-    return {"evidence_sufficient": response.sufficient}
+    flags: list[str] = []
+    fallback = SufficiencyResponse(sufficient=False)
+    response, fallback_used = _invoke_structured_with_meta(chat_client, SufficiencyResponse, prompt, fallback)
+    sufficient = bool(response.sufficient)
+
+    has_evidence = False
+    for item in infos:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("key_data", "")).strip() or str(item.get("evidence_or_grounds", "")).strip():
+            has_evidence = True
+            break
+    if sufficient and not has_evidence:
+        flags.append("inconsistency:sufficiency_without_evidence")
+
+    result = {"evidence_sufficient": sufficient}
+    result.update(
+        _record_trace(
+            state,
+            step_id="evaluate_sufficiency",
+            input_obj={
+                "extracted_document_count": len(infos),
+                "required_documents_count": len(required),
+            },
+            output_obj={"evidence_sufficient": sufficient},
+            rationale_summary="추출된 문서 근거가 분쟁 신청에 충분한지 판정",
+            fallback_used=fallback_used,
+            latency_ms=int((perf_counter() - started) * 1000),
+            flags=flags,
+            meta={"has_non_empty_evidence": has_evidence},
+        )
+    )
+    return result
 
 
 def _build_sufficiency_prompt(plan: str, required_documents: list, extracted_infos: list[dict]) -> str:
@@ -754,10 +1124,11 @@ def _compose_user_friendly_explanation(
     if document_evidence:
         for item in document_evidence[:3]:
             src = int(item.get("source_index", 0) or 0)
+            source_name = str(item.get("source_name", "")).strip() or f"문서 {src}"
             key_data = str(item.get("key_data", "")).strip() or "(핵심 데이터 없음)"
             evidence = str(item.get("evidence", "")).strip() or "(근거 없음)"
             lines.append(
-                f"- [문서 {src}] 핵심={_to_plain_language(key_data)} / 근거={_to_plain_language(evidence)}"
+                f"- [{source_name}] 핵심={_to_plain_language(key_data)} / 근거={_to_plain_language(evidence)}"
             )
     else:
         lines.append("- 추가 문서 근거가 충분하지 않습니다.")
@@ -797,9 +1168,11 @@ def _mask_decision_summary(summary: dict) -> dict:
     document_evidence = []
     for item in masked_summary.get("document_evidence", []) or []:
         source_index = int(item.get("source_index", 1) or 1)
+        source_name = str(item.get("source_name", "")).strip()
         document_evidence.append(
             {
                 "source_index": source_index,
+                "source_name": _mask_pii_text(source_name),
                 "key_data": _mask_pii_text(str(item.get("key_data", ""))),
                 "evidence": _mask_pii_text(str(item.get("evidence", ""))),
             }
@@ -834,15 +1207,25 @@ def _extract_clause_blocks(relevant_terms: str, limit: int = 3) -> list[dict[str
     return items
 
 
-def _extract_document_evidence(infos: list[dict], limit: int = 3) -> list[dict[str, str | int]]:
+def _extract_document_evidence(
+    infos: list[dict],
+    *,
+    required_documents: list[str] | None = None,
+    limit: int = 3,
+) -> list[dict[str, str | int]]:
+    required = [str(item).strip() for item in (required_documents or []) if str(item).strip()]
     extracted: list[dict[str, str | int]] = []
     for idx, info in enumerate(infos[:limit], start=1):
+        source_name = str(info.get("source_name", "")).strip()
+        if not source_name and idx - 1 < len(required):
+            source_name = required[idx - 1]
         key_data = str(info.get("key_data", "")).strip()
         evidence = str(info.get("evidence_or_grounds", "")).strip()
         helpful = str(info.get("helpful_notes", "")).strip()
         extracted.append(
             {
                 "source_index": idx,
+                "source_name": source_name or f"문서 {idx}",
                 "key_data": key_data or helpful or "(핵심 데이터 없음)",
                 "evidence": evidence or helpful or "(근거 문구 없음)",
             }
@@ -860,8 +1243,11 @@ def _build_decision_explanation_prompt(
     required_text = "\n".join(f"- {item}" for item in required_documents[:5]) or "- (없음)"
     evidence_lines = []
     for idx, info in enumerate(extracted_infos[:5], start=1):
+        source_name = str(info.get("source_name", "")).strip() or (
+            required_documents[idx - 1] if idx - 1 < len(required_documents) else f"문서 {idx}"
+        )
         evidence_lines.append(
-            f"[문서 {idx}] 핵심={str(info.get('key_data', '')).strip()} / "
+            f"[{source_name}] 핵심={str(info.get('key_data', '')).strip()} / "
             f"근거={str(info.get('evidence_or_grounds', '')).strip()} / "
             f"기타={str(info.get('helpful_notes', '')).strip()}"
         )
@@ -889,6 +1275,7 @@ def _build_decision_explanation_prompt(
 1) 보험사 주장(insurer_claim)과 사용자 상황(user_situation)을 먼저 분리해 적으세요.
 2) 약관 근거(policy_clauses)는 최대 3개만 고르고, 각 항목은 제목+짧은 요약(snippet)으로 작성하세요.
 3) 문서 근거(document_evidence)는 최대 3개만 고르고, source_index는 1부터 시작하세요.
+   - source_name에는 문서 카탈로그 이름(예: 진료비 세부산정내역서/영수증)을 우선적으로 쓰세요.
 4) plain_explanation은 한 문장 길이를 짧게 쓰고, 어려운 용어는 괄호로 쉬운 뜻을 붙여 설명하세요.
 5) plain_explanation 안에 반드시 '약관 근거'를 명시하고, 실제 조항 제목을 1개 이상 인용하세요.
 6) 이름/계약번호/전화번호/이메일 등 개인정보는 원문 그대로 쓰지 말고 마스킹 형태로 표현하세요.
@@ -902,10 +1289,15 @@ def _build_fallback_decision_explanation(state: dict) -> tuple[dict, str]:
     denial_text = str(state.get("denial_statement_text", "")).strip()
     relevant_terms = str(state.get("relevant_terms", "")).strip()
     plan = str(state.get("plan", "")).strip()
+    required_documents = [str(item).strip() for item in (state.get("required_documents") or []) if str(item).strip()]
     extracted_infos = list(state.get("extracted_document_infos") or [])
 
     clauses = _extract_clause_blocks(relevant_terms, limit=3)
-    doc_evidence = _extract_document_evidence(extracted_infos, limit=3)
+    doc_evidence = _extract_document_evidence(
+        extracted_infos,
+        required_documents=required_documents,
+        limit=3,
+    )
 
     user_situation = (
         "제출된 거절 통지서와 추가 문서를 기준으로 현재 청구 상황을 정리했습니다."
@@ -945,14 +1337,17 @@ def explain_decision_node(state: dict, config: RunnableConfig) -> dict:
     읽기: denial_statement_text, relevant_terms, plan, extracted_document_infos
     쓰기: decision_summary, decision_explanation
     """
-    if not state.get("evidence_sufficient"):
+    if not state.get("evidence_sufficient") and not state.get("auto_resume_exhausted"):
         return {}
 
     fallback_summary, fallback_explanation = _build_fallback_decision_explanation(state)
 
     configurable = (config or {}).get("configurable", {})
     chat_client = configurable.get("chat_client")
+    strict_mode = _env_bool("ONBOARDING_STRICT_LLM_MODE", False)
     if not chat_client:
+        if strict_mode:
+            raise RuntimeError("chat_client is required when ONBOARDING_STRICT_LLM_MODE=true")
         return {
             "decision_summary": fallback_summary,
             "decision_explanation": fallback_explanation,
@@ -982,11 +1377,22 @@ def explain_decision_node(state: dict, config: RunnableConfig) -> dict:
         document_evidence = [
             EvidenceReference(
                 source_index=item.source_index,
+                source_name=item.source_name,
                 key_data=item.key_data,
                 evidence=item.evidence,
             ).model_dump()
             for item in response.document_evidence[:3]
         ]
+        for item in document_evidence:
+            source_index = int(item.get("source_index", 0) or 0)
+            source_name = str(item.get("source_name", "")).strip()
+            if source_name:
+                continue
+            if source_index > 0 and source_index - 1 < len(extracted_infos):
+                source_name = str(extracted_infos[source_index - 1].get("source_name", "")).strip()
+            if not source_name and source_index > 0 and source_index - 1 < len(required_documents):
+                source_name = str(required_documents[source_index - 1]).strip()
+            item["source_name"] = source_name or f"문서 {source_index or 1}"
 
         decision_summary_raw = {
             "user_situation": response.user_situation,
@@ -1013,6 +1419,8 @@ def explain_decision_node(state: dict, config: RunnableConfig) -> dict:
             "decision_explanation": decision_explanation,
         }
     except Exception:
+        if strict_mode:
+            raise
         return {
             "decision_summary": fallback_summary,
             "decision_explanation": fallback_explanation,

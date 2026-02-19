@@ -338,10 +338,20 @@ def _run_onboarding_step(
     return dict(result)
 
 
-def _analysis_options_from_env() -> dict[str, str]:
+def _analysis_options_from_env(thread_id: str) -> dict[str, Any]:
     risk_level = str(os.getenv("STEP3_RISK_LEVEL", "BALANCED")).strip().upper() or "BALANCED"
     output_style = str(os.getenv("STEP3_OUTPUT_STYLE", "USER_READABLE")).strip().upper() or "USER_READABLE"
-    return {"risk_level": risk_level, "output_style": output_style}
+    trace_tags_raw = str(os.getenv("STEP3_TRACE_TAGS", "")).strip()
+    trace_tags = [token.strip() for token in trace_tags_raw.split(",") if token.strip()] if trace_tags_raw else []
+    options: dict[str, Any] = {
+        "risk_level": risk_level,
+        "output_style": output_style,
+        "thread_id": thread_id,
+        "entrypoint": "main",
+    }
+    if trace_tags:
+        options["trace_tags"] = trace_tags
+    return options
 
 
 def _mask_name(value: str) -> str:
@@ -637,7 +647,7 @@ def main() -> None:
     analysis_result = run_data_analysis(
         structured_case,
         rag_result=None,
-        analysis_options=_analysis_options_from_env(),
+        analysis_options=_analysis_options_from_env(thread_id),
     )
     masked_analysis_result = cast(dict[str, Any], _mask_payload_recursive(analysis_result))
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import time
 from typing import Any, TypedDict, cast
+from uuid import uuid4
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
@@ -118,6 +119,88 @@ def _resolve_retrieval_mode(options: dict[str, Any] | None) -> RetrievalMode:
     if raw in {"plain", "hyde", "reverse_hyde", "hybrid_hyde"}:
         return cast(RetrievalMode, raw)
     return "plain"
+
+
+def _parse_bool_env(value: str | None) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _tracing_enabled() -> bool:
+    for key in ("LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING_V2", "LANGSMITH_TRACING"):
+        if _parse_bool_env(os.getenv(key)):
+            return True
+    return False
+
+
+def _normalize_trace_tags(raw: Any) -> list[str]:
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        candidates = [token.strip() for token in raw.split(",")]
+    elif isinstance(raw, (list, tuple, set)):
+        candidates = [str(token).strip() for token in raw]
+    else:
+        candidates = [str(raw).strip()]
+
+    tags: list[str] = []
+    seen: set[str] = set()
+    for token in candidates:
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        tags.append(token)
+    return tags
+
+
+def _build_step3_trace_config(state: DataAnalysisState) -> dict[str, Any]:
+    options = state.get("analysis_options", {})
+    if not isinstance(options, dict):
+        options = {}
+
+    risk_level = str(options.get("risk_level", "BALANCED")).strip().upper() or "BALANCED"
+    output_style = str(options.get("output_style", "USER_READABLE")).strip().upper() or "USER_READABLE"
+    retrieval_mode = str(state.get("retrieval_mode", _resolve_retrieval_mode(options))).strip().lower() or "plain"
+    entrypoint = str(options.get("entrypoint", "unknown")).strip() or "unknown"
+    thread_id = str(options.get("thread_id", "")).strip() or f"step3-{uuid4().hex[:12]}"
+
+    run_name = str(options.get("trace_run_name", "step3_data_analysis")).strip() or "step3_data_analysis"
+    tags = _normalize_trace_tags(
+        [
+            "step3",
+            "data_analysis",
+            f"risk:{risk_level.lower()}",
+            f"retrieval:{retrieval_mode}",
+            *_normalize_trace_tags(options.get("trace_tags")),
+        ]
+    )
+
+    rag_result = state.get("rag_result", {})
+    has_external_rag = bool(isinstance(rag_result, dict) and rag_result.get("items"))
+    llm_enrichment_enabled = bool(options.get("llm_enrichment_enabled", True)) and os.getenv(
+        "STEP3_DISABLE_LLM_ENRICHMENT", "0"
+    ) != "1"
+
+    metadata: dict[str, Any] = {
+        "component": "step3",
+        "risk_level": risk_level,
+        "output_style": output_style,
+        "retrieval_mode": retrieval_mode,
+        "has_external_rag": has_external_rag,
+        "llm_enrichment_enabled": llm_enrichment_enabled,
+        "entrypoint": entrypoint,
+        "thread_id": thread_id,
+        "tracing_enabled_env": _tracing_enabled(),
+    }
+    trace_metadata = options.get("trace_metadata", {})
+    if isinstance(trace_metadata, dict):
+        metadata.update({str(key): value for key, value in trace_metadata.items()})
+
+    return {
+        "run_name": run_name,
+        "tags": tags,
+        "metadata": metadata,
+        "configurable": {"thread_id": thread_id},
+    }
 
 
 def _normalize_external_rag_result(rag_result: dict[str, Any] | None, retrieval_mode: RetrievalMode) -> RAGRetrievalResult:
@@ -1367,6 +1450,9 @@ def _llm_action_enrichment_node(state: DataAnalysisState) -> DataAnalysisState:
 
     llm = ChatOpenAI(model=model_name, api_key=api_key, base_url=base_url, temperature=0.2)
     band = str(state.get("success_probability_public", {}).get("band", "LOW"))
+    thread_id = str(options.get("thread_id", "")).strip()
+    entrypoint = str(options.get("entrypoint", "unknown")).strip() or "unknown"
+    llm_tags = _normalize_trace_tags(["step3", "llm_enrichment", *_normalize_trace_tags(options.get("trace_tags"))])
 
     hitl_triggered = False
     raw_text = ""
@@ -1377,8 +1463,24 @@ def _llm_action_enrichment_node(state: DataAnalysisState) -> DataAnalysisState:
     for idx, simplified in enumerate(attempts, start=1):
         final_attempt = idx
         system_msg, human_msg = _build_llm_messages(actions, action_evidence, band, simplified=simplified)
+        llm_config: dict[str, Any] = {
+            "run_name": "step3_llm_action_enrichment",
+            "tags": llm_tags,
+            "metadata": {
+                "component": "step3",
+                "node": "llm_action_enrichment",
+                "thread_id": thread_id or "unknown",
+                "entrypoint": entrypoint,
+                "band": band,
+                "model": model_name,
+                "attempt": idx,
+            },
+        }
+        if thread_id:
+            llm_config["configurable"] = {"thread_id": thread_id}
+        llm_for_attempt = llm.with_config(llm_config)
         try:
-            raw_text, latency_ms = _stream_chat_completion(llm, [system_msg, human_msg], timeout_s=timeout_s)
+            raw_text, latency_ms = _stream_chat_completion(llm_for_attempt, [system_msg, human_msg], timeout_s=timeout_s)
             parsed = _extract_json_object(raw_text)
             rows = parsed.get("actions", []) if isinstance(parsed, dict) else []
             if not isinstance(rows, list):
@@ -2176,7 +2278,10 @@ def run_pipeline(
     analysis_options: dict[str, Any] | None = None,
 ) -> AnalysisResult:
     normalized_case = normalize_structured_case(structured_case)
-    options = analysis_options or {"risk_level": "BALANCED", "output_style": "USER_READABLE"}
+    options = dict(analysis_options or {"risk_level": "BALANCED", "output_style": "USER_READABLE"})
+    options.setdefault("entrypoint", "unknown")
+    if not str(options.get("thread_id", "")).strip():
+        options["thread_id"] = f"step3-{uuid4().hex[:12]}"
 
     initial_state = DataAnalysisState(
         structured_case=normalized_case,
@@ -2185,5 +2290,6 @@ def run_pipeline(
         retrieval_mode=_resolve_retrieval_mode(options),
     )
     app = build_graph()
-    result_state: DataAnalysisState = app.invoke(initial_state)
+    trace_config = _build_step3_trace_config(initial_state)
+    result_state: DataAnalysisState = app.invoke(initial_state, config=trace_config)
     return result_state["analysis_result"]

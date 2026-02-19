@@ -12,8 +12,10 @@ def run(
     rag_result: dict[str, Any] | None = None,
     analysis_options: dict[str, Any] | None = None,
 ) -> AnalysisResult:
+    options = dict(analysis_options or {})
+    options.setdefault("entrypoint", "agent")
     return run_pipeline(
         structured_case,
         rag_result=rag_result,
-        analysis_options=analysis_options,
+        analysis_options=options,
     )

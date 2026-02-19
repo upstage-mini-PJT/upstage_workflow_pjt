@@ -71,9 +71,8 @@ def _score_to_band(score: int, bands: dict[str, Any]) -> Literal["LOW", "MEDIUM"
     for name, config in bands.items():
         mn = int(config.get("min", 0))
         mx = int(config.get("max", 100))
-        if mn <= score <= mx:
-            if name in {"LOW", "MEDIUM", "HIGH"}:
-                return name
+        if mn <= score <= mx and name in {"LOW", "MEDIUM", "HIGH"}:
+            return name
     if score <= 39:
         return "LOW"
     if score <= 69:

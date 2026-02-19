@@ -38,7 +38,7 @@ class PlanningRetrievalPipelineTests(unittest.TestCase):
     ):
         mock_ensure_vectordb.return_value = object()
         mock_generate_hyde_queries.side_effect = (
-            lambda _chat, _denial, intent: [f"hyde::{intent.get('query_seed', '')}"]
+            lambda _chat, _denial, intent: ([f"hyde::{intent.get('query_seed', '')}"], False, 1)
         )
         mock_retrieve_candidates.side_effect = lambda **kwargs: [
             {

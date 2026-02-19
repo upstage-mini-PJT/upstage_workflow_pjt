@@ -1,0 +1,1250 @@
+{
+  "summary": {
+    "modes": [
+      "plain",
+      "hyde",
+      "reverse_hyde",
+      "hybrid_hyde"
+    ],
+    "by_mode": {
+      "plain": {
+        "scenario_count": 16,
+        "score_min": 47,
+        "score_max": 52,
+        "score_mean": 49.62,
+        "avg_rag_items": 6.0,
+        "avg_guardrail_count": 0.0,
+        "band_distribution": {
+          "LOW": 0,
+          "MEDIUM": 16,
+          "HIGH": 0
+        }
+      },
+      "hyde": {
+        "scenario_count": 16,
+        "score_min": 46,
+        "score_max": 52,
+        "score_mean": 48.94,
+        "avg_rag_items": 6.0,
+        "avg_guardrail_count": 0.0,
+        "band_distribution": {
+          "LOW": 0,
+          "MEDIUM": 16,
+          "HIGH": 0
+        }
+      },
+      "reverse_hyde": {
+        "scenario_count": 16,
+        "score_min": 60,
+        "score_max": 64,
+        "score_mean": 61.88,
+        "avg_rag_items": 6.0,
+        "avg_guardrail_count": 0.0,
+        "band_distribution": {
+          "LOW": 0,
+          "MEDIUM": 16,
+          "HIGH": 0
+        }
+      },
+      "hybrid_hyde": {
+        "scenario_count": 16,
+        "score_min": 64,
+        "score_max": 69,
+        "score_mean": 66.62,
+        "avg_rag_items": 6.0,
+        "avg_guardrail_count": 0.0,
+        "band_distribution": {
+          "LOW": 0,
+          "MEDIUM": 16,
+          "HIGH": 0
+        }
+      }
+    }
+  },
+  "rows": [
+    {
+      "mode": "plain",
+      "scenario_id": "S01",
+      "name": "입원 필요성 부인",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 49,
+      "success_band": "MEDIUM",
+      "precedent_score": 49,
+      "case_adjustment": 0,
+      "total_score": 49,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S02",
+      "name": "면책조항 적용 다툼",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 51,
+      "success_band": "MEDIUM",
+      "precedent_score": 51,
+      "case_adjustment": 0,
+      "total_score": 51,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S03",
+      "name": "진단코드 단독 거절",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 49,
+      "success_band": "MEDIUM",
+      "precedent_score": 49,
+      "case_adjustment": 0,
+      "total_score": 49,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S04",
+      "name": "서류 미비 거절",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 50,
+      "success_band": "MEDIUM",
+      "precedent_score": 50,
+      "case_adjustment": 0,
+      "total_score": 50,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S05",
+      "name": "고지의무 위반 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 51,
+      "success_band": "MEDIUM",
+      "precedent_score": 51,
+      "case_adjustment": 0,
+      "total_score": 51,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S06",
+      "name": "자동차사고 후 후유장해",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 50,
+      "success_band": "MEDIUM",
+      "precedent_score": 50,
+      "case_adjustment": 0,
+      "total_score": 50,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S07",
+      "name": "치료 기간 과다 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 51,
+      "success_band": "MEDIUM",
+      "precedent_score": 51,
+      "case_adjustment": 0,
+      "total_score": 51,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S08",
+      "name": "중복보상 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 47,
+      "success_band": "MEDIUM",
+      "precedent_score": 47,
+      "case_adjustment": 0,
+      "total_score": 47,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S09",
+      "name": "사고 인과관계 부인",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 52,
+      "success_band": "MEDIUM",
+      "precedent_score": 52,
+      "case_adjustment": 0,
+      "total_score": 52,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S10",
+      "name": "약관 문언 모호성",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 49,
+      "success_band": "MEDIUM",
+      "precedent_score": 49,
+      "case_adjustment": 0,
+      "total_score": 49,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S11",
+      "name": "경미 사고 단기치료",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 49,
+      "success_band": "MEDIUM",
+      "precedent_score": 49,
+      "case_adjustment": 0,
+      "total_score": 49,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S12",
+      "name": "기왕증 중심 인과관계 약함",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 52,
+      "success_band": "MEDIUM",
+      "precedent_score": 52,
+      "case_adjustment": 0,
+      "total_score": 52,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S13",
+      "name": "약관 해석 유리 + 증빙 보강",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 48,
+      "success_band": "MEDIUM",
+      "precedent_score": 48,
+      "case_adjustment": 0,
+      "total_score": 48,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S14",
+      "name": "면책조항 엄격해석 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 48,
+      "success_band": "MEDIUM",
+      "precedent_score": 48,
+      "case_adjustment": 0,
+      "total_score": 48,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S15",
+      "name": "중복보상 항목 분리 명확",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 47,
+      "success_band": "MEDIUM",
+      "precedent_score": 47,
+      "case_adjustment": 0,
+      "total_score": 47,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "plain",
+      "scenario_id": "S16",
+      "name": "고지의무 위반 다툼 + 자료 부족",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 51,
+      "success_band": "MEDIUM",
+      "precedent_score": 51,
+      "case_adjustment": 0,
+      "total_score": 51,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S01",
+      "name": "입원 필요성 부인",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 50,
+      "success_band": "MEDIUM",
+      "precedent_score": 50,
+      "case_adjustment": 0,
+      "total_score": 50,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S02",
+      "name": "면책조항 적용 다툼",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 49,
+      "success_band": "MEDIUM",
+      "precedent_score": 49,
+      "case_adjustment": 0,
+      "total_score": 49,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S03",
+      "name": "진단코드 단독 거절",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 50,
+      "success_band": "MEDIUM",
+      "precedent_score": 50,
+      "case_adjustment": 0,
+      "total_score": 50,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S04",
+      "name": "서류 미비 거절",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 48,
+      "success_band": "MEDIUM",
+      "precedent_score": 48,
+      "case_adjustment": 0,
+      "total_score": 48,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S05",
+      "name": "고지의무 위반 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 49,
+      "success_band": "MEDIUM",
+      "precedent_score": 49,
+      "case_adjustment": 0,
+      "total_score": 49,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S06",
+      "name": "자동차사고 후 후유장해",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 50,
+      "success_band": "MEDIUM",
+      "precedent_score": 50,
+      "case_adjustment": 0,
+      "total_score": 50,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S07",
+      "name": "치료 기간 과다 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 50,
+      "success_band": "MEDIUM",
+      "precedent_score": 50,
+      "case_adjustment": 0,
+      "total_score": 50,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S08",
+      "name": "중복보상 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 46,
+      "success_band": "MEDIUM",
+      "precedent_score": 46,
+      "case_adjustment": 0,
+      "total_score": 46,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S09",
+      "name": "사고 인과관계 부인",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 52,
+      "success_band": "MEDIUM",
+      "precedent_score": 52,
+      "case_adjustment": 0,
+      "total_score": 52,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S10",
+      "name": "약관 문언 모호성",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 48,
+      "success_band": "MEDIUM",
+      "precedent_score": 48,
+      "case_adjustment": 0,
+      "total_score": 48,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S11",
+      "name": "경미 사고 단기치료",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 49,
+      "success_band": "MEDIUM",
+      "precedent_score": 49,
+      "case_adjustment": 0,
+      "total_score": 49,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S12",
+      "name": "기왕증 중심 인과관계 약함",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 52,
+      "success_band": "MEDIUM",
+      "precedent_score": 52,
+      "case_adjustment": 0,
+      "total_score": 52,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S13",
+      "name": "약관 해석 유리 + 증빙 보강",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 47,
+      "success_band": "MEDIUM",
+      "precedent_score": 47,
+      "case_adjustment": 0,
+      "total_score": 47,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S14",
+      "name": "면책조항 엄격해석 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 48,
+      "success_band": "MEDIUM",
+      "precedent_score": 48,
+      "case_adjustment": 0,
+      "total_score": 48,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S15",
+      "name": "중복보상 항목 분리 명확",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 46,
+      "success_band": "MEDIUM",
+      "precedent_score": 46,
+      "case_adjustment": 0,
+      "total_score": 46,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "hyde",
+      "scenario_id": "S16",
+      "name": "고지의무 위반 다툼 + 자료 부족",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 49,
+      "success_band": "MEDIUM",
+      "precedent_score": 49,
+      "case_adjustment": 0,
+      "total_score": 49,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S01",
+      "name": "입원 필요성 부인",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 62,
+      "success_band": "MEDIUM",
+      "precedent_score": 62,
+      "case_adjustment": 0,
+      "total_score": 62,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S02",
+      "name": "면책조항 적용 다툼",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 62,
+      "success_band": "MEDIUM",
+      "precedent_score": 62,
+      "case_adjustment": 0,
+      "total_score": 62,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S03",
+      "name": "진단코드 단독 거절",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 61,
+      "success_band": "MEDIUM",
+      "precedent_score": 61,
+      "case_adjustment": 0,
+      "total_score": 61,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S04",
+      "name": "서류 미비 거절",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 64,
+      "success_band": "MEDIUM",
+      "precedent_score": 64,
+      "case_adjustment": 0,
+      "total_score": 64,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S05",
+      "name": "고지의무 위반 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 63,
+      "success_band": "MEDIUM",
+      "precedent_score": 63,
+      "case_adjustment": 0,
+      "total_score": 63,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S06",
+      "name": "자동차사고 후 후유장해",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 61,
+      "success_band": "MEDIUM",
+      "precedent_score": 61,
+      "case_adjustment": 0,
+      "total_score": 61,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S07",
+      "name": "치료 기간 과다 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 63,
+      "success_band": "MEDIUM",
+      "precedent_score": 63,
+      "case_adjustment": 0,
+      "total_score": 63,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S08",
+      "name": "중복보상 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 61,
+      "success_band": "MEDIUM",
+      "precedent_score": 61,
+      "case_adjustment": 0,
+      "total_score": 61,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S09",
+      "name": "사고 인과관계 부인",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 63,
+      "success_band": "MEDIUM",
+      "precedent_score": 63,
+      "case_adjustment": 0,
+      "total_score": 63,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S10",
+      "name": "약관 문언 모호성",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 60,
+      "success_band": "MEDIUM",
+      "precedent_score": 60,
+      "case_adjustment": 0,
+      "total_score": 60,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S11",
+      "name": "경미 사고 단기치료",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 62,
+      "success_band": "MEDIUM",
+      "precedent_score": 62,
+      "case_adjustment": 0,
+      "total_score": 62,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S12",
+      "name": "기왕증 중심 인과관계 약함",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 63,
+      "success_band": "MEDIUM",
+      "precedent_score": 63,
+      "case_adjustment": 0,
+      "total_score": 63,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S13",
+      "name": "약관 해석 유리 + 증빙 보강",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 60,
+      "success_band": "MEDIUM",
+      "precedent_score": 60,
+      "case_adjustment": 0,
+      "total_score": 60,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S14",
+      "name": "면책조항 엄격해석 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 61,
+      "success_band": "MEDIUM",
+      "precedent_score": 61,
+      "case_adjustment": 0,
+      "total_score": 61,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S15",
+      "name": "중복보상 항목 분리 명확",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 61,
+      "success_band": "MEDIUM",
+      "precedent_score": 61,
+      "case_adjustment": 0,
+      "total_score": 61,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "reverse_hyde",
+      "scenario_id": "S16",
+      "name": "고지의무 위반 다툼 + 자료 부족",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 63,
+      "success_band": "MEDIUM",
+      "precedent_score": 63,
+      "case_adjustment": 0,
+      "total_score": 63,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S01",
+      "name": "입원 필요성 부인",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 66,
+      "success_band": "MEDIUM",
+      "precedent_score": 66,
+      "case_adjustment": 0,
+      "total_score": 66,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S02",
+      "name": "면책조항 적용 다툼",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 67,
+      "success_band": "MEDIUM",
+      "precedent_score": 67,
+      "case_adjustment": 0,
+      "total_score": 67,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S03",
+      "name": "진단코드 단독 거절",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 66,
+      "success_band": "MEDIUM",
+      "precedent_score": 66,
+      "case_adjustment": 0,
+      "total_score": 66,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S04",
+      "name": "서류 미비 거절",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 69,
+      "success_band": "MEDIUM",
+      "precedent_score": 69,
+      "case_adjustment": 0,
+      "total_score": 69,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S05",
+      "name": "고지의무 위반 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 67,
+      "success_band": "MEDIUM",
+      "precedent_score": 67,
+      "case_adjustment": 0,
+      "total_score": 67,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S06",
+      "name": "자동차사고 후 후유장해",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 66,
+      "success_band": "MEDIUM",
+      "precedent_score": 66,
+      "case_adjustment": 0,
+      "total_score": 66,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S07",
+      "name": "치료 기간 과다 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 68,
+      "success_band": "MEDIUM",
+      "precedent_score": 68,
+      "case_adjustment": 0,
+      "total_score": 68,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S08",
+      "name": "중복보상 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 66,
+      "success_band": "MEDIUM",
+      "precedent_score": 66,
+      "case_adjustment": 0,
+      "total_score": 66,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S09",
+      "name": "사고 인과관계 부인",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 68,
+      "success_band": "MEDIUM",
+      "precedent_score": 68,
+      "case_adjustment": 0,
+      "total_score": 68,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S10",
+      "name": "약관 문언 모호성",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 65,
+      "success_band": "MEDIUM",
+      "precedent_score": 65,
+      "case_adjustment": 0,
+      "total_score": 65,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S11",
+      "name": "경미 사고 단기치료",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 67,
+      "success_band": "MEDIUM",
+      "precedent_score": 67,
+      "case_adjustment": 0,
+      "total_score": 67,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S12",
+      "name": "기왕증 중심 인과관계 약함",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 68,
+      "success_band": "MEDIUM",
+      "precedent_score": 68,
+      "case_adjustment": 0,
+      "total_score": 68,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S13",
+      "name": "약관 해석 유리 + 증빙 보강",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 64,
+      "success_band": "MEDIUM",
+      "precedent_score": 64,
+      "case_adjustment": 0,
+      "total_score": 64,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S14",
+      "name": "면책조항 엄격해석 주장",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 66,
+      "success_band": "MEDIUM",
+      "precedent_score": 66,
+      "case_adjustment": 0,
+      "total_score": 66,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S15",
+      "name": "중복보상 항목 분리 명확",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 66,
+      "success_band": "MEDIUM",
+      "precedent_score": 66,
+      "case_adjustment": 0,
+      "total_score": 66,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    },
+    {
+      "mode": "hybrid_hyde",
+      "scenario_id": "S16",
+      "name": "고지의무 위반 다툼 + 자료 부족",
+      "rag_items": 6,
+      "candidate_count": 12,
+      "returned_count": 6,
+      "success_score": 67,
+      "success_band": "MEDIUM",
+      "precedent_score": 67,
+      "case_adjustment": 0,
+      "total_score": 67,
+      "guardrails": [],
+      "guardrail_count": 0,
+      "query_variants": [
+        "plain",
+        "hyde",
+        "reverse_hyde"
+      ]
+    }
+  ]
+}

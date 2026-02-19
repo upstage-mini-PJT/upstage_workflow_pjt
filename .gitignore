@@ -76,6 +76,10 @@ data/*
 !data/policies/*.md
 !data/mock_documents/
 !data/mock_documents/**
+!data/data_analysis_data/
+!data/data_analysis_data/**
+!evaluations/data_analysis/
+!evaluations/data_analysis/**
 tmp/
 temp/
 
@@ -125,3 +129,8 @@ coverage/
 ########################################
 *.swp
 *.swo
+
+STEP3_RAG_SCHEMA_CONTRACT_v1_1.md
+agent_full_architecture_document.md
+data_analysis.md
+RAG_SCHEMA_CONTRACT.md

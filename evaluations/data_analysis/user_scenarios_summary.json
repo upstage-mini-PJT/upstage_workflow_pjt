@@ -1,0 +1,17 @@
+{
+  "scenario_count": 16,
+  "score_min": 47,
+  "score_max": 52,
+  "score_mean": 49.62,
+  "band_distribution": {
+    "LOW": 0,
+    "MEDIUM": 16,
+    "HIGH": 0
+  },
+  "eval_bucket_distribution": {
+    "LOW": 0,
+    "MEDIUM": 8,
+    "HIGH_LIKE": 8
+  },
+  "guardrail_distribution": {}
+}

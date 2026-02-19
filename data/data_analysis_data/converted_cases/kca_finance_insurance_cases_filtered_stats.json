@@ -1,0 +1,7 @@
+{
+  "source_file": "data/data_analysis_data/converted_cases/kca_finance_insurance_cases_all.json",
+  "total_rows": 249,
+  "filtered_rows": 199,
+  "normalized_rows": 199,
+  "filter_ratio": 0.7992
+}

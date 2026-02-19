@@ -56,8 +56,16 @@ class EvidenceGuideItem(TypedDict, total=False):
     why_relevant: str
 
 
+class IssueBriefItem(TypedDict, total=False):
+    issue_id: str
+    title: str
+    why_it_matters: str
+    needed_evidence: str
+
+
 class UserGuidance(TypedDict, total=False):
     plain_summary: str
+    issue_brief: list[IssueBriefItem]
     next_steps: list[str]
     evidence_guide: list[EvidenceGuideItem]
     disclaimer: str

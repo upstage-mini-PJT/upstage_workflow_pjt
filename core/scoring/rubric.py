@@ -81,6 +81,9 @@ def _score_to_band(score: int, bands: dict[str, Any]) -> Literal["LOW", "MEDIUM"
 
 
 def score_success(features: dict[str, Any], rubric_path: str | None = None) -> ScoreEstimate:
+    # NOTE:
+    # This score is an internal auxiliary score used for explainability (drivers/assumptions)
+    # and fallback logic. Final Step3 band is derived from comparative scoring trace.
     rubric = _load_rubric(rubric_path)
     score = int(rubric.get("base_score", 45))
 

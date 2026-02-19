@@ -187,6 +187,14 @@ def _build_vector_index_store() -> Any:
     return InMemoryVectorIndexStore(index_name=index_name)
 
 
+def _strip_known_source_prefix(doc_id: str) -> str:
+    sid = str(doc_id).strip()
+    for prefix in ("CASELAW:", "DISPUTE:", "WEB:"):
+        if sid.startswith(prefix):
+            return sid[len(prefix) :]
+    return sid
+
+
 def _normalize_rank_node(state: DataAnalysisState) -> DataAnalysisState:
     normalized_precedent = normalize_cases(state.get("raw_precedent_cases", []))
     normalized_dispute = normalize_cases(state.get("raw_dispute_cases", []))
@@ -396,7 +404,7 @@ def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
         )
     )
 
-    total_score = int(scoring_trace.get("total_score", max(0, min(100, precedent_score + decision.case_adjustment))))
+    trace_total_score = int(scoring_trace.get("total_score", max(0, min(100, precedent_score + decision.case_adjustment))))
 
     return {
         "case_adjustment": decision.case_adjustment,
@@ -405,10 +413,23 @@ def _score_adjustment_node(state: DataAnalysisState) -> DataAnalysisState:
         "internal_scoring": {
             "precedent_score": precedent_score,
             "case_adjustment": decision.case_adjustment,
-            "total_score": total_score,
+            # SSOT: comparative scoring trace total_score
+            "total_score": trace_total_score,
         },
         "scoring_trace": ScoringTrace(**scoring_trace),
     }
+
+
+def _merge_unique(primary: list[str], secondary: list[str]) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+    for text in primary + secondary:
+        key = str(text).strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        merged.append(key)
+    return merged
 
 
 def _estimate_success_probability_node(state: DataAnalysisState) -> DataAnalysisState:
@@ -420,15 +441,28 @@ def _estimate_success_probability_node(state: DataAnalysisState) -> DataAnalysis
 
     precedent_score = int(internal_scoring.get("precedent_score", precedent.get("score", 0) or 0))
     case_adjustment = int(internal_scoring.get("case_adjustment", state.get("case_adjustment", 0) or 0))
-    total_score = int(internal_scoring.get("total_score", max(0, min(100, precedent_score + case_adjustment))))
+    scoring_trace = state.get("scoring_trace", {})
+    trace_total = scoring_trace.get("total_score")
+    total_score = int(trace_total if trace_total is not None else internal_scoring.get("total_score", max(0, min(100, precedent_score + case_adjustment))))
     band = _score_to_band(total_score)
 
-    positive_drivers = list(precedent.get("positive_drivers", []))
-    negative_drivers = list(precedent.get("negative_drivers", []))
+    rubric_positive = list(precedent.get("positive_drivers", []))
+    rubric_negative = list(precedent.get("negative_drivers", []))
+
+    comparative_positive: list[str] = []
+    comparative_negative: list[str] = []
+    if total_score >= 70:
+        comparative_positive.append("RAG 비교 점수 높음")
+    elif total_score <= 39:
+        comparative_negative.append("RAG 비교 점수 낮음")
+
     if case_adjustment > 0:
-        positive_drivers.append(f"사례 기반 보정 +{case_adjustment}점")
+        comparative_positive.append(f"사례 기반 보정 +{case_adjustment}점")
     elif case_adjustment < 0:
-        negative_drivers.append(f"사례 기반 보정 {case_adjustment}점")
+        comparative_negative.append(f"사례 기반 보정 {case_adjustment}점")
+
+    positive_drivers = _merge_unique(comparative_positive, rubric_positive)
+    negative_drivers = _merge_unique(comparative_negative, rubric_negative)
 
     assumptions = list(precedent.get("assumptions", [])) + list(state.get("adjustment_notes", []))
     assumptions.append(f"case_adjustment_source={state.get('case_adjustment_source', 'zero')}")
@@ -441,7 +475,7 @@ def _estimate_success_probability_node(state: DataAnalysisState) -> DataAnalysis
             assumptions=assumptions,
         ),
         "scoring_trace": {
-            **state.get("scoring_trace", {}),
+            **scoring_trace,
             "precedent_score": precedent_score,
             "case_adjustment": case_adjustment,
             "total_score": total_score,
@@ -1087,10 +1121,11 @@ def _build_rag_result_from_ranked(
 ) -> RAGRetrievalResult:
     ingestion_inputs: list[dict[str, Any]] = []
     for doc in ranked:
+        raw_doc_id = _strip_known_source_prefix(str(doc.get("doc_id", "")))
         ingestion_inputs.append(
             {
                 "source_type": doc.get("source_type", source_filter),
-                "doc_id": doc.get("doc_id"),
+                "doc_id": raw_doc_id,
                 "title": doc.get("title", ""),
                 "body": doc.get("summary") or doc.get("holding") or "",
                 "published_at": doc.get("published_at"),

@@ -53,22 +53,64 @@ def _load_rubric(path: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
+def _trim_issue_query_plan(raw_items: list[Any], *, max_items: int = 4) -> list[dict[str, Any]]:
+    trimmed: list[dict[str, Any]] = []
+    for item in raw_items[:max_items]:
+        if not isinstance(item, dict):
+            continue
+        intent = str(item.get("intent", "")).strip()
+        query_seed = str(item.get("query_seed", "")).strip()
+        must_keywords = [str(keyword).strip() for keyword in (item.get("must_keywords") or []) if str(keyword).strip()]
+        priority = item.get("priority")
+        trimmed.append(
+            {
+                "intent": intent,
+                "query_seed": query_seed[:220],
+                "must_keywords": must_keywords[:5],
+                "priority": priority,
+            }
+        )
+    return trimmed
+
+
 def _build_prompt(rubric: dict[str, Any], onboarding_state: dict[str, Any], row: dict[str, Any]) -> str:
     rubric_text = yaml.safe_dump(rubric, allow_unicode=True, sort_keys=False) if rubric else "(rubric 없음)"
     decision_summary = onboarding_state.get("decision_summary", {})
     decision_explanation = str(onboarding_state.get("decision_explanation", "")).strip()
     trace_preview = list(onboarding_state.get("decision_trace") or [])[-4:]
+    issue_hypotheses = [str(item).strip() for item in (row.get("issue_hypotheses") or []) if str(item).strip()][:6]
+    issue_query_plan = _trim_issue_query_plan(list(row.get("issue_query_plan") or []), max_items=4)
+    issue_query_seeds = [str(item).strip() for item in (row.get("issue_query_seeds") or []) if str(item).strip()][:4]
+    final_plan_text = str(row.get("final_plan_text", "")).strip()
+    final_plan_preview = str(row.get("final_plan_preview", "")).strip()
+    issue_planning_output = {
+        "issue_hypotheses": issue_hypotheses,
+        "issue_query_plan": issue_query_plan,
+        "issue_query_seeds": issue_query_seeds,
+    }
+    final_planning_output = {
+        "final_plan_preview": final_plan_preview[:600],
+        "final_plan_text": final_plan_text[:1800],
+        "required_document_ids": row.get("required_document_ids", []),
+        "final_plan_confidence": row.get("final_plan_confidence"),
+    }
     return f"""당신은 보험 온보딩 판단품질 평가자입니다.
 아래 출력물을 rubric 기준으로 정성평가하세요.
 
 [rubric]
 {rubric_text}
 
-[핵심 판단 요약]
+[핵심 판단 요약(결과)]
 - required_document_ids: {row.get("required_document_ids", [])}
 - evidence_sufficient: {row.get("evidence_sufficient")}
 - final_plan_confidence: {row.get("final_plan_confidence")}
 - quality_flags: {row.get("quality_flags", [])}
+
+[issue_planning_output]
+{json.dumps(issue_planning_output, ensure_ascii=False)}
+
+[final_planning_output]
+{json.dumps(final_planning_output, ensure_ascii=False)}
 
 [decision_summary]
 {json.dumps(decision_summary, ensure_ascii=False)}
@@ -81,8 +123,11 @@ def _build_prompt(rubric: dict[str, Any], onboarding_state: dict[str, Any], row:
 
 채점 규칙:
 1) groundedness: 문서/약관 근거에 기반한 판단인지 (1~5)
+   - issue_planning 쿼리/가설이 근거 탐색에 실제로 기여하는지 포함
 2) consistency: 단계 간 모순이 없는지 (1~5)
+   - issue_planning → final_planning → decision_summary 흐름 일관성 포함
 3) actionability: 사용자 입장에서 실행 가능한지 (1~5)
+   - final_planning의 계획/요청서류가 실행 가능한지 포함
 4) groundedness_violations: 근거 불충분/허위추론 의심 건수(0~10)
 5) rationale: 한두 문장 근거
 """
@@ -174,4 +219,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

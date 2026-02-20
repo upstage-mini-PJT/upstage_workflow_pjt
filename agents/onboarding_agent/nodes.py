@@ -120,7 +120,12 @@ def _invoke_structured_with_meta(chat_client: Any, schema: Any, prompt: str, fal
 
     while True:
         try:
-            return structured_llm.invoke([HumanMessage(content=prompt)]), False
+            response = structured_llm.invoke([HumanMessage(content=prompt)])
+            if response is None:
+                if strict_mode:
+                    raise RuntimeError("structured LLM returned None response")
+                return fallback, True
+            return response, False
         except Exception as exc:
             failed_attempts += 1
             elapsed_sec = perf_counter() - started
@@ -1377,7 +1382,6 @@ def explain_decision_node(state: dict, config: RunnableConfig) -> dict:
         document_evidence = [
             EvidenceReference(
                 source_index=item.source_index,
-                source_name=item.source_name,
                 key_data=item.key_data,
                 evidence=item.evidence,
             ).model_dump()

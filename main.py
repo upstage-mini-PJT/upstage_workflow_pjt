@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import re
+import threading
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -19,6 +21,57 @@ from agents.data_analysis_agent.agent import run as run_data_analysis
 from agents.onboarding_agent.temp_builder import onboarding_graph
 from core.schemas.case_context import StructuredCase, normalize_structured_case
 from tools.retrieve_terms import ensure_vectordb_ready, list_policy_dates, load_vectordb
+
+
+@contextmanager
+def _progress_indicator(message: str, *, interval_sec: float = 0.12):
+    """Display a single-line progress animation while a blocking call runs."""
+    if not sys.stdout.isatty():
+        print(f"[진행중] {message}")
+        yield
+        return
+
+    frames = ["(\\_/)", "(\\_/)>", "<(\\_/)", "<(\\_/)>"]
+    stop_event = threading.Event()
+    render_lock = threading.Lock()
+    max_width = {"value": 0}
+    term_name = str(os.getenv("TERM", "")).strip().lower()
+    supports_ansi_clear = bool(term_name and term_name != "dumb")
+
+    def _clear_line() -> None:
+        if supports_ansi_clear:
+            sys.stdout.write("\r\033[2K")
+            return
+        sys.stdout.write("\r" + (" " * max_width["value"]) + "\r")
+
+    def _render(text: str) -> None:
+        with render_lock:
+            width = len(text)
+            if width > max_width["value"]:
+                max_width["value"] = width
+            _clear_line()
+            sys.stdout.write(text)
+            sys.stdout.flush()
+
+    def _runner() -> None:
+        frame_index = 0
+        while not stop_event.is_set():
+            frame = frames[frame_index % len(frames)]
+            _render(f"{message} {frame}")
+            frame_index += 1
+            if stop_event.wait(interval_sec):
+                break
+
+    worker = threading.Thread(target=_runner, daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        stop_event.set()
+        worker.join()
+        with render_lock:
+            _clear_line()
+            sys.stdout.flush()
 
 
 def _parse_args() -> argparse.Namespace:
@@ -287,13 +340,14 @@ def _run_onboarding_step(
         }
     }
 
-    result = onboarding_graph.invoke(
-        {
-            "denial_file_path": denial_file_path,
-            "policy_date": selected_policy_date,
-        },
-        config=config,
-    )
+    with _progress_indicator("명세서 해석중..."):
+        result = onboarding_graph.invoke(
+            {
+                "denial_file_path": denial_file_path,
+                "policy_date": selected_policy_date,
+            },
+            config=config,
+        )
 
     interrupt_count = 0
     max_interrupts = 5
@@ -333,7 +387,8 @@ def _run_onboarding_step(
             for doc_id in normalized_required_ids:
                 resume_paths.append(_input_existing_file(f"- {doc_id} 파일 경로: "))
 
-        result = onboarding_graph.invoke(Command(resume=resume_paths), config=config)
+        with _progress_indicator("분쟁상황 해석중..."):
+            result = onboarding_graph.invoke(Command(resume=resume_paths), config=config)
 
     return dict(result)
 
@@ -644,11 +699,12 @@ def main() -> None:
 
     structured_case = _build_structured_case(onboarding_state)
 
-    analysis_result = run_data_analysis(
-        structured_case,
-        rag_result=None,
-        analysis_options=_analysis_options_from_env(thread_id),
-    )
+    with _progress_indicator(" 분쟁 가이드 생성중..."):
+        analysis_result = run_data_analysis(
+            structured_case,
+            rag_result=None,
+            analysis_options=_analysis_options_from_env(thread_id),
+        )
     masked_analysis_result = cast(dict[str, Any], _mask_payload_recursive(analysis_result))
 
     actions = masked_analysis_result.get("recommended_actions", [])

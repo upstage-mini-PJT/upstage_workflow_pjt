@@ -136,3 +136,22 @@ data_analysis.md
 RAG_SCHEMA_CONTRACT.md
 
 outputs/
+
+########################################
+# Onboarding eval generated artifacts
+########################################
+evaluations/onboarding/drift_report.json
+evaluations/onboarding/summary.json
+evaluations/onboarding/qual_summary.json
+evaluations/onboarding/qual_summary_same_scenario_3x.json
+evaluations/onboarding/smoke_summary.json
+evaluations/onboarding/live_no_fallback_smoke.json
+evaluations/onboarding/live_context_compare/
+evaluations/onboarding/live_no_fallback/
+
+########################################
+# Local scratch files
+########################################
+chat.text
+hyundai_senior_silson_denial_sample.pdf
+data/mock_documents/.DS_Store

@@ -1,0 +1,48 @@
+name: onboarding-smoke
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      UPSTAGE_API_KEY: ${{ secrets.UPSTAGE_API_KEY }}
+      ONBOARDING_AUTO_RESUME_MOCK: "true"
+      ONBOARDING_MOCK_MANIFEST: data/mock_documents/hyundai_senior_silson_case/manifest.json
+      ONBOARDING_DIAGNOSTICS_ENABLED: "true"
+      ONBOARDING_DETERMINISM_MODE: decision_lock
+      ONBOARDING_PROMPT_VERSION: v1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Validate secrets
+        run: |
+          if [ -z "$UPSTAGE_API_KEY" ]; then
+            echo "UPSTAGE_API_KEY secret is required"
+            exit 1
+          fi
+
+      - name: Run onboarding smoke eval
+        run: |
+          uv run python -m evaluations.onboarding.run_smoke_eval \
+            --dataset evaluations/onboarding/dataset.jsonl \
+            --max-cases 3 \
+            --baseline evaluations/onboarding/smoke_baseline.json \
+            --max-baseline-mismatch-rate 0.10
+

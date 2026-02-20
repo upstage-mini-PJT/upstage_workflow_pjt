@@ -1,0 +1,68 @@
+name: onboarding-nightly
+
+on:
+  schedule:
+    - cron: "0 16 * * *"
+  workflow_dispatch:
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+    env:
+      UPSTAGE_API_KEY: ${{ secrets.UPSTAGE_API_KEY }}
+      ONBOARDING_AUTO_RESUME_MOCK: "true"
+      ONBOARDING_MOCK_MANIFEST: data/mock_documents/hyundai_senior_silson_case/manifest.json
+      ONBOARDING_DIAGNOSTICS_ENABLED: "true"
+      ONBOARDING_DETERMINISM_MODE: decision_lock
+      ONBOARDING_PROMPT_VERSION: v1
+      ONBOARDING_EVAL_SAMPLE_RATE: "0.1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Validate secrets
+        run: |
+          if [ -z "$UPSTAGE_API_KEY" ]; then
+            echo "UPSTAGE_API_KEY secret is required"
+            exit 1
+          fi
+
+      - name: Run reproducibility eval
+        run: |
+          uv run python -m evaluations.onboarding.run_repro_eval \
+            --dataset evaluations/onboarding/dataset.jsonl \
+            --repeats 10 \
+            --output-dir evaluations/onboarding
+
+      - name: Run qualitative eval
+        run: |
+          uv run python -m evaluations.onboarding.run_qual_eval \
+            --dataset evaluations/onboarding/dataset.jsonl \
+            --rubric evaluations/onboarding/rubric.yaml \
+            --output evaluations/onboarding/qual_summary.json \
+            --max-cases 10 \
+            --min-qual-score-avg 4.0 \
+            --max-groundedness-violations 0
+
+      - name: Upload onboarding eval artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: onboarding-eval-artifacts
+          path: |
+            evaluations/onboarding/summary.json
+            evaluations/onboarding/drift_report.json
+            evaluations/onboarding/qual_summary.json
+            evaluations/onboarding/smoke_summary.json
+          if-no-files-found: warn
+

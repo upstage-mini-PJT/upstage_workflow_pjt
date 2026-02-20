@@ -1,0 +1,17 @@
+version: 1
+criteria:
+  - id: groundedness
+    score_1: 문서/약관 근거 연결이 거의 보이지 않음
+    score_3: 일부 근거 연결은 있으나 누락/모호함 존재
+    score_5: 핵심 판단이 문서/약관 근거에 명확히 연결됨
+  - id: consistency
+    score_1: 단계 간 모순이 자주 발생
+    score_3: 주요 판단은 일치하나 일부 불일치 존재
+    score_5: 단계 전반의 판단이 일관됨
+  - id: actionability
+    score_1: 사용자 관점에서 실행 지시가 불명확
+    score_3: 기본 실행은 가능하나 우선순위/구체성 부족
+    score_5: 실행 우선순위와 문서 요청 근거가 명확함
+gate:
+  min_qual_score_avg: 4.0
+  max_groundedness_violations: 0

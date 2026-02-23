@@ -1,0 +1,28 @@
+# Virtual environment
+.venv/
+
+# Output files
+outputs/
+
+# ChromaDB (volume-mounted at runtime)
+data/chroma/
+
+# Environment secrets
+.env
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Dev/test files
+tests/
+evaluations/
+.idea/
+.git/
+*.md
+nul
+
+# UI (runs locally, not in Docker)
+ui/

@@ -320,7 +320,7 @@ if __name__ == "__main__":
         )
 
     final_state = result
-    print("\n--- ✅ 분석 완료 ---")
+    print("\n--- [완료] 분석 완료 ---")
     plan = final_state.get("plan") or ""
     if plan:
         print(f"결과 Plan: {plan[:100]}{'...' if len(plan) > 100 else ''}")

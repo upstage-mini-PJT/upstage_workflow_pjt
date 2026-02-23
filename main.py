@@ -1,11 +1,12 @@
+"""CLI entry point — thin wrapper around api/workflow.py shared logic."""
 from __future__ import annotations
 
 import argparse
-from contextlib import contextmanager
 import json
 import os
 import re
 import threading
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -13,15 +14,19 @@ import uuid
 from typing import Any, cast
 
 from dotenv import load_dotenv
-from langchain_core.runnables import RunnableConfig
-from langchain_upstage import ChatUpstage, UpstageUniversalInformationExtraction
-from langgraph.types import Command
 
-from agents.data_analysis_agent.agent import run as run_data_analysis
-from agents.onboarding_agent.temp_builder import onboarding_graph
-from core.schemas.case_context import StructuredCase, normalize_structured_case
-from tools.retrieve_terms import ensure_vectordb_ready, list_policy_dates, load_vectordb
+from api.workflow import (
+    build_runnable_config,
+    build_structured_case,
+    invoke_onboarding_graph,
+    resume_onboarding_graph,
+    run_analysis,
+)
 
+
+# ---------------------------------------------------------------------------
+# Progress indicator (CLI only)
+# ---------------------------------------------------------------------------
 
 @contextmanager
 def _progress_indicator(message: str, *, interval_sec: float = 0.12):
@@ -74,6 +79,10 @@ def _progress_indicator(message: str, *, interval_sec: float = 0.12):
             sys.stdout.flush()
 
 
+# ---------------------------------------------------------------------------
+# CLI argument parsing and input resolution
+# ---------------------------------------------------------------------------
+
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Step1/2 + Step3 통합 실행기")
     parser.add_argument("--denial-file", default="", help="지급거절 명세서 파일 경로")
@@ -109,24 +118,13 @@ def _validate_yyyymmdd(value: str, *, label: str) -> str:
     return cleaned
 
 
-def _select_policy_date(join_date: str, available_dates: list[str]) -> tuple[str, str]:
-    if not available_dates:
-        raise SystemExit("vector DB에 policy_date가 없어 가입일 기반 매핑을 수행할 수 없습니다.")
-
-    sorted_dates = sorted({d for d in available_dates if len(d) == 8 and d.isdigit()})
-    if not sorted_dates:
-        raise SystemExit("vector DB의 policy_date 형식이 유효하지 않습니다.")
-
-    if join_date in sorted_dates:
-        return join_date, "가입일과 동일한 policy_date 사용"
-
-    prior_dates = [d for d in sorted_dates if d <= join_date]
-    if prior_dates:
-        chosen = prior_dates[-1]
-        return chosen, f"가입일({join_date}) 기준 가장 가까운 이전 policy_date({chosen}) 선택"
-
-    chosen = sorted_dates[0]
-    return chosen, f"가입일({join_date})이 모든 버전보다 이전이라 최소 policy_date({chosen}) 선택"
+def _parse_bool(value: str, *, name: str) -> bool:
+    raw = str(value or "").strip().lower()
+    if raw in {"1", "true", "yes", "y", "on"}:
+        return True
+    if raw in {"0", "false", "no", "n", "off"}:
+        return False
+    raise SystemExit(f"{name} 값이 유효하지 않습니다: {value} (true/false)")
 
 
 def _input_existing_file(prompt: str) -> str:
@@ -161,57 +159,33 @@ def _resolve_join_date(arg_value: str) -> str:
         print("가입일 형식이 올바르지 않습니다. 예: 20250301")
 
 
-def _parse_bool(value: str, *, name: str) -> bool:
-    raw = str(value or "").strip().lower()
-    if raw in {"1", "true", "yes", "y", "on"}:
-        return True
-    if raw in {"0", "false", "no", "n", "off"}:
-        return False
-    raise SystemExit(f"{name} 값이 유효하지 않습니다: {value} (true/false)")
-
-
-def _build_chat_client() -> ChatUpstage:
-    model_name = str(os.getenv("ONBOARDING_CHAT_MODEL", "solar-pro2")).strip() or "solar-pro2"
-    try:
-        timeout_sec = float(str(os.getenv("ONBOARDING_CHAT_TIMEOUT", "45")).strip())
-    except ValueError:
-        timeout_sec = 45.0
-    try:
-        max_retries = int(str(os.getenv("ONBOARDING_CHAT_MAX_RETRIES", "1")).strip())
-    except ValueError:
-        max_retries = 1
-
-    return ChatUpstage(model=model_name, timeout=max(timeout_sec, 5.0), max_retries=max(max_retries, 0))
-
+# ---------------------------------------------------------------------------
+# Mock-manifest helpers (CLI only)
+# ---------------------------------------------------------------------------
 
 def _load_mock_manifest(manifest_path: str) -> dict[str, str]:
     path = Path(str(manifest_path).strip())
     if not path.exists():
         raise SystemExit(f"mock manifest 파일이 존재하지 않습니다: {path}")
-
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise SystemExit(f"mock manifest 파싱 실패: {path} ({exc})") from exc
-
     raw_map = payload.get("catalog_to_file", {})
     if not isinstance(raw_map, dict):
         raise SystemExit(f"mock manifest 형식 오류: catalog_to_file이 dict가 아닙니다: {path}")
-
     resolved: dict[str, str] = {}
     for key, value in raw_map.items():
         doc_id = str(key).strip()
         doc_path = str(value).strip()
-        if not doc_id or not doc_path:
-            continue
-        resolved[doc_id] = doc_path
+        if doc_id and doc_path:
+            resolved[doc_id] = doc_path
     return resolved
 
 
 def _resolve_mock_resume_paths(required_ids: list[str], mock_map: dict[str, str]) -> list[str]:
     if not required_ids:
         raise SystemExit("required_document_ids가 비어 있어 자동 resume를 진행할 수 없습니다.")
-
     missing: list[str] = []
     paths: list[str] = []
     for doc_id in required_ids:
@@ -222,192 +196,14 @@ def _resolve_mock_resume_paths(required_ids: list[str], mock_map: dict[str, str]
         if not Path(mapped).exists():
             raise SystemExit(f"manifest에 매핑된 파일이 존재하지 않습니다: {doc_id} -> {mapped}")
         paths.append(mapped)
-
     if missing:
         raise SystemExit(f"manifest 미매핑 doc_id: {missing}")
-
     return paths
 
 
-def _normalize_policy_clauses(decision_summary: dict[str, Any]) -> list[str]:
-    clauses: list[str] = []
-    raw = decision_summary.get("policy_clauses", [])
-    if not isinstance(raw, list):
-        return clauses
-
-    for item in raw:
-        if isinstance(item, dict):
-            title = str(item.get("title", "")).strip()
-            snippet = str(item.get("snippet", "")).strip()
-            merged = " - ".join([part for part in [title, snippet] if part])
-            if merged:
-                clauses.append(merged)
-        else:
-            text = str(item).strip()
-            if text:
-                clauses.append(text)
-    return clauses
-
-
-def _normalize_evidence_summary(state: dict[str, Any]) -> list[dict[str, str]]:
-    result: list[dict[str, str]] = []
-    extracted = state.get("extracted_document_infos", [])
-    if not isinstance(extracted, list):
-        return result
-
-    for idx, info in enumerate(extracted, start=1):
-        if not isinstance(info, dict):
-            continue
-        key_data = str(info.get("key_data", "")).strip()
-        evidence = str(info.get("evidence_or_grounds", "")).strip()
-        notes = str(info.get("helpful_notes", "")).strip()
-        summary = " / ".join([part for part in [key_data, evidence, notes] if part])
-        result.append(
-            {
-                "title": f"추가서류 {idx}",
-                "summary": summary or "추출 정보 없음",
-                "document_type": "additional_document",
-                "source": "onboarding.extracted_document_infos",
-            }
-        )
-    return result
-
-
-def _build_structured_case(onboarding_state: dict[str, Any]) -> StructuredCase:
-    decision_summary = onboarding_state.get("decision_summary", {})
-    if not isinstance(decision_summary, dict):
-        decision_summary = {}
-
-    denial_reasons: list[str] = []
-    insurer_claim = str(decision_summary.get("insurer_claim", "")).strip()
-    conclusion_reason = str(decision_summary.get("conclusion_reason", "")).strip()
-    if insurer_claim:
-        denial_reasons.append(insurer_claim)
-    if conclusion_reason and conclusion_reason != insurer_claim:
-        denial_reasons.append(conclusion_reason)
-
-    timeline: list[dict[str, str]] = []
-    user_situation = str(decision_summary.get("user_situation", "")).strip()
-    if user_situation:
-        timeline.append(
-            {
-                "date": "",
-                "description": user_situation,
-                "actor": "insured",
-                "source": "onboarding.decision_summary",
-            }
-        )
-
-    structured_case = {
-        "user_info": {
-            "policy_date": str(onboarding_state.get("policy_date", "")).strip(),
-            "final_plan_confidence": str(onboarding_state.get("final_plan_confidence", "")).strip(),
-            "decision_explanation": str(onboarding_state.get("decision_explanation", "")).strip(),
-            "decision_summary_user_situation": str(decision_summary.get("user_situation", "")).strip(),
-            "decision_summary_insurer_claim": str(decision_summary.get("insurer_claim", "")).strip(),
-            "decision_summary_conclusion_reason": str(decision_summary.get("conclusion_reason", "")).strip(),
-            "required_documents": [str(x).strip() for x in onboarding_state.get("required_documents", []) if str(x).strip()],
-        },
-        "denial_summary": str(onboarding_state.get("plan", "")).strip()
-        or str(onboarding_state.get("denial_statement_text", "")).strip()[:800],
-        "denial_reasons": denial_reasons,
-        "policy_clauses": _normalize_policy_clauses(decision_summary),
-        "timeline": timeline,
-        "evidence_summary": _normalize_evidence_summary(onboarding_state),
-        "open_questions": [str(x).strip() for x in onboarding_state.get("required_documents", []) if str(x).strip()],
-    }
-    return normalize_structured_case(structured_case)
-
-
-def _run_onboarding_step(
-    denial_file_path: str,
-    selected_policy_date: str,
-    thread_id: str,
-    *,
-    auto_resume_mock: bool,
-    mock_manifest_path: str,
-) -> dict[str, Any]:
-    policy_vectordb = ensure_vectordb_ready(load_vectordb())
-    mock_map = _load_mock_manifest(mock_manifest_path) if auto_resume_mock else {}
-
-    config: RunnableConfig = {
-        "configurable": {
-            "ie_client": UpstageUniversalInformationExtraction(),
-            "chat_client": _build_chat_client(),
-            "policy_vectordb": policy_vectordb,
-            "policy_date": selected_policy_date,
-            "thread_id": thread_id,
-        }
-    }
-
-    with _progress_indicator("명세서 해석중..."):
-        result = onboarding_graph.invoke(
-            {
-                "denial_file_path": denial_file_path,
-                "policy_date": selected_policy_date,
-            },
-            config=config,
-        )
-
-    interrupt_count = 0
-    max_interrupts = 5
-    while result.get("__interrupt__"):
-        interrupt_count += 1
-        if interrupt_count > max_interrupts:
-            payload = result["__interrupt__"][0].value if result.get("__interrupt__") else {}
-            evidence_sufficient = result.get("evidence_sufficient")
-            raise SystemExit(
-                f"interrupt 반복 횟수 초과({max_interrupts}). "
-                f"last_payload={payload}, evidence_sufficient={evidence_sufficient}"
-            )
-
-        payload = result["__interrupt__"][0].value if result.get("__interrupt__") else {}
-        required_ids = payload.get("required_document_ids", []) if isinstance(payload, dict) else []
-        required_items = payload.get("required_document_items", []) if isinstance(payload, dict) else []
-        required_docs = payload.get("required_documents", []) if isinstance(payload, dict) else []
-        normalized_required_ids = [str(item).strip() for item in required_ids if str(item).strip()]
-
-        if not normalized_required_ids:
-            raise SystemExit(
-                "interrupt payload에 required_document_ids가 없습니다. "
-                f"required_documents={required_docs}"
-            )
-
-        print("\n[추가 서류 요청]")
-        for idx, item in enumerate(required_items, start=1):
-            doc_id = str(item.get("id", "")).strip()
-            name = str(item.get("name", "")).strip()
-            print(f"{idx}. {doc_id} - {name}")
-
-        if auto_resume_mock:
-            resume_paths = _resolve_mock_resume_paths(normalized_required_ids, mock_map)
-            print(f"[auto-resume] {normalized_required_ids} -> {resume_paths}")
-        else:
-            resume_paths = []
-            for doc_id in normalized_required_ids:
-                resume_paths.append(_input_existing_file(f"- {doc_id} 파일 경로: "))
-
-        with _progress_indicator("분쟁상황 해석중..."):
-            result = onboarding_graph.invoke(Command(resume=resume_paths), config=config)
-
-    return dict(result)
-
-
-def _analysis_options_from_env(thread_id: str) -> dict[str, Any]:
-    risk_level = str(os.getenv("STEP3_RISK_LEVEL", "BALANCED")).strip().upper() or "BALANCED"
-    output_style = str(os.getenv("STEP3_OUTPUT_STYLE", "USER_READABLE")).strip().upper() or "USER_READABLE"
-    trace_tags_raw = str(os.getenv("STEP3_TRACE_TAGS", "")).strip()
-    trace_tags = [token.strip() for token in trace_tags_raw.split(",") if token.strip()] if trace_tags_raw else []
-    options: dict[str, Any] = {
-        "risk_level": risk_level,
-        "output_style": output_style,
-        "thread_id": thread_id,
-        "entrypoint": "main",
-    }
-    if trace_tags:
-        options["trace_tags"] = trace_tags
-    return options
-
+# ---------------------------------------------------------------------------
+# PII masking (CLI only — for safe local output)
+# ---------------------------------------------------------------------------
 
 def _mask_name(value: str) -> str:
     text = str(value or "").strip()
@@ -433,7 +229,7 @@ def _mask_digits_keep_tail(text: str, *, keep_tail: int = 2) -> str:
     digit_positions = [idx for idx, ch in enumerate(chars) if ch.isdigit()]
     if not digit_positions:
         return "".join(chars)
-    keep_set = set(digit_positions[-max(0, keep_tail) :]) if keep_tail > 0 else set()
+    keep_set = set(digit_positions[-max(0, keep_tail):]) if keep_tail > 0 else set()
     for idx in digit_positions:
         if idx not in keep_set:
             chars[idx] = "*"
@@ -445,7 +241,7 @@ def _mask_alnum_keep_tail(text: str, *, keep_tail: int = 2) -> str:
     positions = [idx for idx, ch in enumerate(chars) if ch.isalnum()]
     if not positions:
         return "".join(chars)
-    keep_set = set(positions[-max(0, keep_tail) :]) if keep_tail > 0 else set()
+    keep_set = set(positions[-max(0, keep_tail):]) if keep_tail > 0 else set()
     for idx in positions:
         if idx not in keep_set:
             chars[idx] = "*"
@@ -536,6 +332,10 @@ def _mask_payload_recursive(value: Any) -> Any:
     return value
 
 
+# ---------------------------------------------------------------------------
+# Output helpers (CLI only)
+# ---------------------------------------------------------------------------
+
 def _save_output(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     safe_payload = _mask_payload_recursive(payload)
@@ -558,16 +358,13 @@ def _render_step2_brief_5lines(onboarding_state: dict[str, Any]) -> str:
     decision_summary = onboarding_state.get("decision_summary", {})
     if not isinstance(decision_summary, dict):
         decision_summary = {}
-
-    user_situation = _to_one_line(str(decision_summary.get("user_situation", "")).strip(), max_chars=140)
-    insurer_claim = _to_one_line(str(decision_summary.get("insurer_claim", "")).strip(), max_chars=140)
-    conclusion_reason = _to_one_line(str(decision_summary.get("conclusion_reason", "")).strip(), max_chars=140)
-
+    user_situation = _to_one_line(str(decision_summary.get("user_situation", "")).strip())
+    insurer_claim = _to_one_line(str(decision_summary.get("insurer_claim", "")).strip())
+    conclusion_reason = _to_one_line(str(decision_summary.get("conclusion_reason", "")).strip())
     extracted_infos = onboarding_state.get("extracted_document_infos", [])
     evidence_docs = len(extracted_infos) if isinstance(extracted_infos, list) else 0
     evidence_sufficient = bool(onboarding_state.get("evidence_sufficient", False))
     evidence_status = "충분" if evidence_sufficient else "보강 필요"
-
     lines = [
         f"- 사용자 상황: {user_situation}",
         f"- 보험사 주장: {insurer_claim}",
@@ -667,6 +464,58 @@ def _ensure_onboarding_complete(onboarding_state: dict[str, Any]) -> None:
         raise SystemExit(1)
 
 
+# ---------------------------------------------------------------------------
+# CLI onboarding loop (handles interrupts with mock manifest or interactive)
+# ---------------------------------------------------------------------------
+
+def _cli_run_onboarding(
+    denial_file_path: str,
+    join_date: str,
+    thread_id: str,
+    *,
+    auto_resume_mock: bool,
+    mock_manifest_path: str,
+) -> dict[str, Any]:
+    mock_map = _load_mock_manifest(mock_manifest_path) if auto_resume_mock else {}
+
+    with _progress_indicator("명세서 해석중..."):
+        config, policy_date = build_runnable_config(thread_id, join_date)
+        data = invoke_onboarding_graph(config, denial_file_path, policy_date)
+
+    interrupt_count = 0
+    max_interrupts = 5
+    while data["interrupted"]:
+        interrupt_count += 1
+        if interrupt_count > max_interrupts:
+            raise SystemExit(f"interrupt 반복 횟수 초과({max_interrupts}).")
+
+        required_ids = data["required_document_ids"]
+        required_items = data["required_document_items"]
+
+        print("\n[추가 서류 요청]")
+        for idx, item in enumerate(required_items, start=1):
+            doc_id = str(item.get("id", "")).strip()
+            name = str(item.get("name", "")).strip()
+            print(f"{idx}. {doc_id} - {name}")
+
+        if auto_resume_mock:
+            resume_paths = _resolve_mock_resume_paths(required_ids, mock_map)
+            print(f"[auto-resume] {required_ids} -> {resume_paths}")
+        else:
+            resume_paths = []
+            for doc_id in required_ids:
+                resume_paths.append(_input_existing_file(f"- {doc_id} 파일 경로: "))
+
+        with _progress_indicator("분쟁상황 해석중..."):
+            data = resume_onboarding_graph(config, resume_paths)
+
+    return dict(data["graph_result"])
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
 def main() -> None:
     load_dotenv()
     _require_env()
@@ -676,17 +525,12 @@ def main() -> None:
     denial_file_path = _resolve_denial_file(args.denial_file)
     join_date = _resolve_join_date(args.join_date)
 
-    policy_vectordb = ensure_vectordb_ready(load_vectordb())
-    available_policy_dates = list_policy_dates(policy_vectordb)
-    selected_policy_date, reason = _select_policy_date(join_date, available_policy_dates)
-
     thread_id = str(uuid.uuid4())
     print(f"[session] thread_id={thread_id}")
-    print(f"[policy] selected_policy_date={selected_policy_date} ({reason})")
 
-    onboarding_state = _run_onboarding_step(
+    onboarding_state = _cli_run_onboarding(
         denial_file_path,
-        selected_policy_date,
+        join_date,
         thread_id,
         auto_resume_mock=auto_resume_mock,
         mock_manifest_path=args.mock_manifest,
@@ -697,14 +541,8 @@ def main() -> None:
     print("\n=== Step2 Result Summary ===")
     print(_render_step2_brief_5lines(masked_onboarding_state))
 
-    structured_case = _build_structured_case(onboarding_state)
-
     with _progress_indicator(" 분쟁 가이드 생성중..."):
-        analysis_result = run_data_analysis(
-            structured_case,
-            rag_result=None,
-            analysis_options=_analysis_options_from_env(thread_id),
-        )
+        analysis_result = run_analysis(thread_id, onboarding_state)
     masked_analysis_result = cast(dict[str, Any], _mask_payload_recursive(analysis_result))
 
     actions = masked_analysis_result.get("recommended_actions", [])
@@ -725,13 +563,15 @@ def main() -> None:
         print("\n=== User Guidance ===")
         print(_render_user_guidance_4sections(user_guidance))
 
-    masked_structured_case = cast(dict[str, Any], _mask_payload_recursive(structured_case))
+    masked_structured_case = cast(
+        dict[str, Any],
+        _mask_payload_recursive(build_structured_case(onboarding_state)),
+    )
     output_path = Path(args.output).resolve() if args.output else _default_output_path().resolve()
     global_state = {
         "thread_id": thread_id,
         "denial_file_path": denial_file_path,
         "join_date": join_date,
-        "policy_date": selected_policy_date,
         "decision_summary": masked_onboarding_state.get("decision_summary", {}),
         "decision_explanation": masked_onboarding_state.get("decision_explanation", ""),
         "onboarding_state": masked_onboarding_state,

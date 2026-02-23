@@ -29,6 +29,11 @@ BASE_DIR = Path(__file__).resolve().parent
 POLICIES_DIR = Path(os.getenv("POLICIES_DIR", str((BASE_DIR / "../../data/policies").resolve()))).resolve()
 VECTOR_DIR = Path(os.getenv("VECTOR_DIR", str((BASE_DIR / "../../data/chroma").resolve()))).resolve()
 
+print(f"[chunker_embedder] __file__    = {Path(__file__).resolve()}")
+print(f"[chunker_embedder] BASE_DIR    = {BASE_DIR}")
+print(f"[chunker_embedder] POLICIES_DIR= {POLICIES_DIR}")
+print(f"[chunker_embedder] VECTOR_DIR  = {VECTOR_DIR}")
+
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 30
 
@@ -125,7 +130,7 @@ def check_for_duplicate_articles(vectordb, policy_date: str):
             print(f"     gaps at: {gaps}")
 
     if not duplicates_found:
-        print(f"  ✅ No duplicate articles detected for {policy_date}.")
+        print(f"  [OK] No duplicate articles detected for {policy_date}.")
 
 
 def load_policy_vectordb() -> Chroma:
